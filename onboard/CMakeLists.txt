@@ -3,6 +3,7 @@
 add_library(sum2_onboard STATIC
     src/validator.c
     src/decryptor.c
+    src/decompressor.c
     src/policy.c
     src/orchestrator.c
 )
@@ -11,9 +12,13 @@ target_include_directories(sum2_onboard
     PUBLIC  include
 )
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ZSTD REQUIRED libzstd)
+
 target_link_libraries(sum2_onboard
-    PUBLIC  sum2_3rdparty
+    PUBLIC  sum2_3rdparty ${ZSTD_LIBRARIES}
 )
+target_include_directories(sum2_onboard PRIVATE ${ZSTD_INCLUDE_DIRS})
 
 # Platform sources — select one at build time
 if(SUM2_PLATFORM_ESP32)

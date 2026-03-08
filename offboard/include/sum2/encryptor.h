@@ -47,6 +47,37 @@ EncryptedPayload EncryptFirmware(
 );
 
 /**
+ * Encrypt a firmware payload using ECDH-ES+A128KW (per-device asymmetric).
+ *
+ * Each recipient's CEK is wrapped using ECDH with the device's P-256 public
+ * key, matching the security model of per-device key wrapping.
+ *
+ * @param plaintext    Firmware binary
+ * @param sender_key   Sender's P-256 private key (ephemeral or static)
+ * @param recipients   Target devices
+ * @return Encrypted payload + COSE_Encrypt metadata
+ */
+EncryptedPayload EncryptFirmwareEcdh(
+    std::span<const uint8_t> plaintext,
+    const CoseKey& sender_key,
+    std::span<const Recipient> recipients
+);
+
+/**
+ * Compress firmware with zstd.
+ *
+ * Designed for the pipeline: compress → encrypt → build manifest.
+ * The manifest carries the PLAINTEXT digest and size (not compressed).
+ *
+ * @param plaintext  Raw firmware binary
+ * @param level      Zstd compression level (1-19, default 3)
+ * @return Compressed bytes
+ */
+std::vector<uint8_t> CompressFirmware(
+    std::span<const uint8_t> plaintext,
+    int level = 3);
+
+/**
  * Compute SHA-256 digest of data. Convenience for setting payload digest.
  */
 std::vector<uint8_t> Sha256(std::span<const uint8_t> data);

@@ -8,6 +8,8 @@
 
 #include <stdexcept>
 
+#include <zstd.h>
+
 #include "csuit_wrapper.h"
 
 namespace sum2 {
@@ -16,44 +18,97 @@ EncryptedPayload EncryptFirmware(
     std::span<const uint8_t> plaintext,
     std::span<const Recipient> recipients)
 {
-    /*
-     * TODO: implementation outline:
-     *
-     * 1. Generate random 16-byte CEK (AES-128)
-     * 2. Generate random 12-byte IV (GCM nonce)
-     * 3. Encrypt plaintext with AES-128-GCM:
-     *    - Use libcsuit's suit_encrypt_cose_encrypt() for COSE structure, OR
-     *    - Use crypto backend directly for the bulk encryption
-     *    - GCM tag appended to ciphertext (COSE convention)
-     *
-     * 4. For each recipient:
-     *    a. Generate ephemeral ECDH keypair
-     *    b. Compute shared secret via ECDH (ephemeral priv + recipient pub)
-     *    c. Derive KEK via HKDF-SHA256 with COSE_KDF_Context
-     *    d. Wrap CEK with AES-KW using derived KEK
-     *    e. Build COSE_recipient structure
-     *
-     * 5. Build COSE_Encrypt CBOR structure:
-     *    - protected: { alg: AES-128-GCM }
-     *    - unprotected: { iv: <nonce> }
-     *    - ciphertext: nil (detached — ciphertext returned separately)
-     *    - recipients: [ ... ]
-     *
-     * 6. Return { ciphertext, COSE_Encrypt CBOR }
-     */
+    if (recipients.empty())
+        throw std::runtime_error("EncryptFirmware: at least one recipient required");
 
-    (void)plaintext;
-    (void)recipients;
-    throw std::runtime_error("EncryptFirmware not yet implemented");
+    /* For now, support single A128KW recipient.
+     * The key bytes in the recipient's CoseKey are the COSE_Key CBOR. */
+    const auto &r = recipients[0];
+    auto kb = r.public_key.PublicKeyBytes();
+    if (kb.empty())
+        throw std::runtime_error("EncryptFirmware: recipient key is empty");
+
+    /* Output buffers: ciphertext = plaintext + 16 (GCM tag), enc_info ~256 */
+    std::vector<uint8_t> ct(plaintext.size() + 128);
+    std::vector<uint8_t> ei(512);
+    size_t ct_len = 0, ei_len = 0;
+
+    int rc = sum2_encrypt_a128kw(
+        plaintext.data(), plaintext.size(),
+        kb.data(), kb.size(),
+        ct.data(), ct.size(), &ct_len,
+        ei.data(), ei.size(), &ei_len);
+
+    if (rc != 0)
+        throw std::runtime_error("sum2_encrypt_a128kw failed (rc=" + std::to_string(rc) + ")");
+
+    ct.resize(ct_len);
+    ei.resize(ei_len);
+
+    return EncryptedPayload{std::move(ct), std::move(ei)};
+}
+
+EncryptedPayload EncryptFirmwareEcdh(
+    std::span<const uint8_t> plaintext,
+    const CoseKey& sender_key,
+    std::span<const Recipient> recipients)
+{
+    if (recipients.empty())
+        throw std::runtime_error("EncryptFirmwareEcdh: at least one recipient required");
+
+    const auto &r = recipients[0];
+    auto sender_kb = sender_key.PublicKeyBytes();
+    auto recv_kb = r.public_key.PublicKeyBytes();
+    if (sender_kb.empty())
+        throw std::runtime_error("EncryptFirmwareEcdh: sender key is empty");
+    if (recv_kb.empty())
+        throw std::runtime_error("EncryptFirmwareEcdh: recipient key is empty");
+
+    std::vector<uint8_t> ct(plaintext.size() + 128);
+    std::vector<uint8_t> ei(1024);
+    size_t ct_len = 0, ei_len = 0;
+
+    int rc = sum2_encrypt_esdh(
+        plaintext.data(), plaintext.size(),
+        sender_kb.data(), sender_kb.size(),
+        recv_kb.data(), recv_kb.size(),
+        r.kid.data(), r.kid.size(),
+        ct.data(), ct.size(), &ct_len,
+        ei.data(), ei.size(), &ei_len);
+
+    if (rc != 0)
+        throw std::runtime_error("sum2_encrypt_esdh failed (rc=" + std::to_string(rc) + ")");
+
+    ct.resize(ct_len);
+    ei.resize(ei_len);
+
+    return EncryptedPayload{std::move(ct), std::move(ei)};
+}
+
+std::vector<uint8_t> CompressFirmware(
+    std::span<const uint8_t> plaintext,
+    int level)
+{
+    size_t bound = ZSTD_compressBound(plaintext.size());
+    std::vector<uint8_t> compressed(bound);
+
+    size_t rc = ZSTD_compress(
+        compressed.data(), compressed.size(),
+        plaintext.data(), plaintext.size(),
+        level);
+    if (ZSTD_isError(rc))
+        throw std::runtime_error(
+            std::string("ZSTD_compress failed: ") + ZSTD_getErrorName(rc));
+
+    compressed.resize(rc);
+    return compressed;
 }
 
 std::vector<uint8_t> Sha256(std::span<const uint8_t> data) {
-    /*
-     * TODO: compute SHA-256 via crypto backend
-     * Can use libcsuit's suit_digest or call backend directly
-     */
-    (void)data;
-    throw std::runtime_error("Sha256 not yet implemented");
+    std::vector<uint8_t> digest(32);
+    if (sum2_sha256(data.data(), data.size(), digest.data()) != 0)
+        throw std::runtime_error("SHA-256 computation failed");
+    return digest;
 }
 
 } // namespace sum2

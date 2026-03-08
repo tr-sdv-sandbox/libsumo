@@ -19,8 +19,15 @@
 #include "qcbor/qcbor_decode.h"
 #include "qcbor/qcbor_encode.h"
 
-/* OpenSSL for AES-GCM streaming + AES key unwrap */
+/* OpenSSL for AES-GCM streaming + AES key unwrap + ECDH + HKDF */
 #include <openssl/evp.h>
+#include <openssl/ec.h>
+#include <openssl/bn.h>
+#include <openssl/kdf.h>
+
+/* Suppress OpenSSL 3.0 deprecation warnings for EC_KEY API
+ * (same approach as t_cose — EC_KEY works fine, just deprecated) */
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 
 #define GCM_TAG_LEN 16
 #define GCM_IV_LEN  12
@@ -111,17 +118,32 @@ static int parse_cose_encrypt(
     /* First recipient */
     QCBORDecode_EnterArray(&ctx, NULL);
 
-    /* recipient[0] protected header — skip */
-    QCBORDecode_GetNext(&ctx, &item);
-
-    /* recipient[1] unprotected header — get alg and kid */
+    /* recipient[0] protected header — may contain algorithm (ECDH-ES case) */
     *recipient_alg_out = 0;
+    QCBORDecode_GetNext(&ctx, &item);
+    if (item.uDataType == QCBOR_TYPE_BYTE_STRING && item.val.string.len > 0) {
+        /* Parse the protected header bstr to find alg */
+        QCBORDecodeContext prot_ctx;
+        QCBORItem prot_item;
+        QCBORDecode_Init(&prot_ctx, item.val.string, QCBOR_DECODE_MODE_NORMAL);
+        QCBORDecode_EnterMap(&prot_ctx, NULL);
+        while (QCBORDecode_GetNext(&prot_ctx, &prot_item) == QCBOR_SUCCESS) {
+            if (prot_item.label.int64 == 1) {
+                if (prot_item.uDataType == QCBOR_TYPE_INT64)
+                    *recipient_alg_out = (int)prot_item.val.int64;
+                else if (prot_item.uDataType == QCBOR_TYPE_UINT64)
+                    *recipient_alg_out = (int)prot_item.val.uint64;
+            }
+        }
+    }
+
+    /* recipient[1] unprotected header — get alg (A128KW case) and kid */
     QCBORDecode_EnterMap(&ctx, NULL);
     while (1) {
         QCBORError err = QCBORDecode_GetNext(&ctx, &item);
         if (err != QCBOR_SUCCESS) break;
-        if (item.label.int64 == 1) {
-            /* algorithm */
+        if (item.label.int64 == 1 && *recipient_alg_out == 0) {
+            /* algorithm — only if not already found in protected header */
             if (item.uDataType == QCBOR_TYPE_INT64) {
                 *recipient_alg_out = (int)item.val.int64;
             } else if (item.uDataType == QCBOR_TYPE_UINT64) {
@@ -142,6 +164,409 @@ static int parse_cose_encrypt(
 
     /* Don't bother fully closing — we have what we need */
     return 0;
+}
+
+/* Forward declaration — defined below */
+static int unwrap_cek_a128kw(
+    const uint8_t *kek, size_t kek_len,
+    const uint8_t *wrapped_cek, size_t wrapped_len,
+    uint8_t cek_out[CEK_LEN]);
+
+/* --- ECDH-ES+A128KW helpers --- */
+
+#define P256_COORD_LEN 32
+
+/**
+ * Parse a COSE_Key map to extract EC2 P-256 key components.
+ * Extracts x, y (always) and d (if present, for private keys).
+ */
+static int parse_ec2_cose_key(
+    const uint8_t *cose_key, size_t len,
+    uint8_t x[P256_COORD_LEN], uint8_t y[P256_COORD_LEN],
+    uint8_t d[P256_COORD_LEN], int *has_d)
+{
+    QCBORDecodeContext ctx;
+    QCBORItem item;
+    UsefulBufC buf = {cose_key, len};
+    int got_x = 0, got_y = 0;
+
+    *has_d = 0;
+    QCBORDecode_Init(&ctx, buf, QCBOR_DECODE_MODE_NORMAL);
+    QCBORDecode_EnterMap(&ctx, NULL);
+
+    while (1) {
+        QCBORError err = QCBORDecode_GetNext(&ctx, &item);
+        if (err != QCBOR_SUCCESS) break;
+        if (item.uDataType != QCBOR_TYPE_BYTE_STRING) continue;
+        if (item.val.string.len != P256_COORD_LEN) continue;
+
+        if (item.label.int64 == -2) {
+            memcpy(x, item.val.string.ptr, P256_COORD_LEN);
+            got_x = 1;
+        } else if (item.label.int64 == -3) {
+            memcpy(y, item.val.string.ptr, P256_COORD_LEN);
+            got_y = 1;
+        } else if (item.label.int64 == -4) {
+            memcpy(d, item.val.string.ptr, P256_COORD_LEN);
+            *has_d = 1;
+        }
+    }
+    return (got_x && got_y) ? 0 : -1;
+}
+
+/**
+ * Parse the ECDH ephemeral public key from the first recipient's
+ * unprotected header in a COSE_Encrypt structure.
+ *
+ * Also captures the recipient's protected header (needed for KDF context).
+ */
+static int parse_ecdh_ephemeral(
+    const uint8_t *enc_info, size_t enc_info_len,
+    uint8_t ephem_x[P256_COORD_LEN], uint8_t ephem_y[P256_COORD_LEN],
+    const uint8_t **rcpt_prot_hdr, size_t *rcpt_prot_hdr_len)
+{
+    QCBORDecodeContext ctx;
+    QCBORItem item;
+    UsefulBufC enc_buf = {enc_info, enc_info_len};
+
+    QCBORDecode_Init(&ctx, enc_buf, QCBOR_DECODE_MODE_NORMAL);
+
+    /* Enter COSE_Encrypt array */
+    QCBORDecode_EnterArray(&ctx, NULL);
+
+    /* [0] protected header — skip */
+    QCBORDecode_GetNext(&ctx, &item);
+
+    /* [1] unprotected header — skip */
+    QCBORDecode_EnterMap(&ctx, NULL);
+    while (QCBORDecode_GetNext(&ctx, &item) == QCBOR_SUCCESS) {}
+    QCBORDecode_ExitMap(&ctx);
+
+    /* [2] ciphertext — skip */
+    QCBORDecode_GetNext(&ctx, &item);
+
+    /* [3] recipients array */
+    QCBORDecode_EnterArray(&ctx, NULL);
+
+    /* First recipient array */
+    QCBORDecode_EnterArray(&ctx, NULL);
+
+    /* recipient[0] protected header */
+    QCBORDecode_GetNext(&ctx, &item);
+    if (item.uDataType == QCBOR_TYPE_BYTE_STRING) {
+        *rcpt_prot_hdr = item.val.string.ptr;
+        *rcpt_prot_hdr_len = item.val.string.len;
+    } else {
+        *rcpt_prot_hdr = NULL;
+        *rcpt_prot_hdr_len = 0;
+    }
+
+    /* recipient[1] unprotected header — find ephemeral key (label -1) */
+    int got_x = 0, got_y = 0;
+    QCBORDecode_EnterMap(&ctx, NULL);
+    while (1) {
+        QCBORError err = QCBORDecode_GetNext(&ctx, &item);
+        if (err != QCBOR_SUCCESS) break;
+
+        if (item.label.int64 == -1 && item.uDataType == QCBOR_TYPE_MAP) {
+            /* Ephemeral COSE_Key — enter and parse x, y */
+            /* The map is already "entered" by GetNext consuming its header.
+             * We need to read its child items. With spiffy decode after
+             * EnterMap, nested containers returned by GetNext are NOT
+             * auto-entered, so we must EnterMap explicitly. But we already
+             * got the map item. In QCBOR spiffy decode, after EnterMap,
+             * GetNext returns items at the current level, skipping nested
+             * containers entirely — so the map at -1 is returned as a
+             * single item and its contents are consumed.
+             *
+             * We can't re-enter it. Instead, we'll parse the ephemeral
+             * key separately below. Just note that we found label -1. */
+        }
+    }
+    QCBORDecode_ExitMap(&ctx);
+
+    /* The spiffy decode approach makes it hard to enter nested maps.
+     * Parse the ephemeral key with a second pass using a raw decode. */
+    {
+        QCBORDecodeContext ctx2;
+        QCBORItem item2;
+        QCBORDecode_Init(&ctx2, enc_buf, QCBOR_DECODE_MODE_NORMAL);
+
+        /* We need to find the ephemeral key map nested inside the
+         * recipient unprotected header. Use raw (non-spiffy) traversal:
+         * scan all items looking for the COSE_Key fields at the right
+         * nesting level. The ephemeral COSE_Key is inside:
+         *   COSE_Encrypt[3][0][1]{-1}{-2: x, -3: y}
+         *
+         * Strategy: walk all items, track depth. When we see a map-entry
+         * with label -1 at the right depth, the next items are the
+         * COSE_Key fields. */
+        int depth = 0;
+        int in_ephem = 0;
+        int ephem_depth = 0;
+
+        while (QCBORDecode_GetNext(&ctx2, &item2) == QCBOR_SUCCESS) {
+            /* Track depth from array/map opens/closes */
+            /* In raw mode, arrays and maps have uNestingLevel */
+
+            if (in_ephem) {
+                if ((int)item2.uNestingLevel <= ephem_depth) {
+                    /* Left the ephemeral key map */
+                    break;
+                }
+                if (item2.uDataType == QCBOR_TYPE_BYTE_STRING &&
+                    item2.val.string.len == P256_COORD_LEN) {
+                    if (item2.label.int64 == -2) {
+                        memcpy(ephem_x, item2.val.string.ptr, P256_COORD_LEN);
+                        got_x = 1;
+                    } else if (item2.label.int64 == -3) {
+                        memcpy(ephem_y, item2.val.string.ptr, P256_COORD_LEN);
+                        got_y = 1;
+                    }
+                }
+            }
+
+            /* Detect the ephemeral key map: label -1, type map.
+             * It's nested inside the recipient unprotected header. */
+            if (!in_ephem &&
+                item2.label.int64 == -1 &&
+                item2.uDataType == QCBOR_TYPE_MAP) {
+                in_ephem = 1;
+                ephem_depth = (int)item2.uNestingLevel;
+            }
+        }
+    }
+
+    return (got_x && got_y) ? 0 : -1;
+}
+
+/**
+ * Create an OpenSSL EVP_PKEY for a P-256 public key from raw x,y coordinates.
+ */
+static EVP_PKEY *create_ec_pubkey(const uint8_t x[P256_COORD_LEN],
+                                   const uint8_t y[P256_COORD_LEN])
+{
+    EVP_PKEY *pkey = NULL;
+    EC_KEY *ec_key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!ec_key) return NULL;
+
+    /* Build uncompressed point: 0x04 || x || y */
+    uint8_t point[1 + P256_COORD_LEN * 2];
+    point[0] = 0x04;
+    memcpy(point + 1, x, P256_COORD_LEN);
+    memcpy(point + 1 + P256_COORD_LEN, y, P256_COORD_LEN);
+
+    const EC_GROUP *group = EC_KEY_get0_group(ec_key);
+    EC_POINT *ec_point = EC_POINT_new(group);
+    if (!ec_point) { EC_KEY_free(ec_key); return NULL; }
+
+    if (EC_POINT_oct2point(group, ec_point, point, sizeof(point), NULL) != 1) {
+        EC_POINT_free(ec_point);
+        EC_KEY_free(ec_key);
+        return NULL;
+    }
+
+    EC_KEY_set_public_key(ec_key, ec_point);
+    EC_POINT_free(ec_point);
+
+    pkey = EVP_PKEY_new();
+    if (!pkey) { EC_KEY_free(ec_key); return NULL; }
+    EVP_PKEY_set1_EC_KEY(pkey, ec_key);
+    EC_KEY_free(ec_key);
+    return pkey;
+}
+
+/**
+ * Create an OpenSSL EVP_PKEY for a P-256 private key from raw d,x,y.
+ */
+static EVP_PKEY *create_ec_privkey(const uint8_t d[P256_COORD_LEN],
+                                    const uint8_t x[P256_COORD_LEN],
+                                    const uint8_t y[P256_COORD_LEN])
+{
+    EVP_PKEY *pkey = NULL;
+    EC_KEY *ec_key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!ec_key) return NULL;
+
+    BIGNUM *bn_d = BN_bin2bn(d, P256_COORD_LEN, NULL);
+    if (!bn_d) { EC_KEY_free(ec_key); return NULL; }
+
+    if (EC_KEY_set_private_key(ec_key, bn_d) != 1) {
+        BN_clear_free(bn_d);
+        EC_KEY_free(ec_key);
+        return NULL;
+    }
+    BN_clear_free(bn_d);
+
+    /* Also set the public key */
+    uint8_t point[1 + P256_COORD_LEN * 2];
+    point[0] = 0x04;
+    memcpy(point + 1, x, P256_COORD_LEN);
+    memcpy(point + 1 + P256_COORD_LEN, y, P256_COORD_LEN);
+
+    const EC_GROUP *group = EC_KEY_get0_group(ec_key);
+    EC_POINT *ec_point = EC_POINT_new(group);
+    if (!ec_point) { EC_KEY_free(ec_key); return NULL; }
+
+    if (EC_POINT_oct2point(group, ec_point, point, sizeof(point), NULL) != 1) {
+        EC_POINT_free(ec_point);
+        EC_KEY_free(ec_key);
+        return NULL;
+    }
+    EC_KEY_set_public_key(ec_key, ec_point);
+    EC_POINT_free(ec_point);
+
+    pkey = EVP_PKEY_new();
+    if (!pkey) { EC_KEY_free(ec_key); return NULL; }
+    EVP_PKEY_set1_EC_KEY(pkey, ec_key);
+    EC_KEY_free(ec_key);
+    return pkey;
+}
+
+/**
+ * Build the COSE_KDF_Context CBOR for ECDH-ES+A128KW.
+ *
+ * COSE_KDF_Context = [
+ *   AlgorithmID: -3,           // A128KW
+ *   PartyUInfo: [null, null, null],
+ *   PartyVInfo: [null, null, null],
+ *   SuppPubInfo: [128, protected_header_bstr]
+ * ]
+ */
+static int build_kdf_context(
+    const uint8_t *rcpt_prot_hdr, size_t rcpt_prot_hdr_len,
+    uint8_t *out, size_t out_size, size_t *out_len)
+{
+    QCBOREncodeContext enc;
+    UsefulBuf buf = {out, out_size};
+    QCBOREncode_Init(&enc, buf);
+
+    QCBOREncode_OpenArray(&enc);
+
+    /* AlgorithmID: A128KW = -3 */
+    QCBOREncode_AddInt64(&enc, -3);
+
+    /* PartyUInfo: [null, null, null] */
+    QCBOREncode_OpenArray(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_CloseArray(&enc);
+
+    /* PartyVInfo: [null, null, null] */
+    QCBOREncode_OpenArray(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_AddNULL(&enc);
+    QCBOREncode_CloseArray(&enc);
+
+    /* SuppPubInfo: [keyDataLength=128, protected_header, "SUIT Payload Encryption"] */
+    QCBOREncode_OpenArray(&enc);
+    QCBOREncode_AddUInt64(&enc, 128);
+    UsefulBufC prot = {rcpt_prot_hdr, rcpt_prot_hdr_len};
+    QCBOREncode_AddBytes(&enc, prot);
+    /* supp_pub_other — matches libcsuit's suit_encrypt_cose_encrypt_esdh() */
+    UsefulBufC supp_pub_other = {
+        (const uint8_t *)"SUIT Payload Encryption", 23};
+    QCBOREncode_AddBytes(&enc, supp_pub_other);
+    QCBOREncode_CloseArray(&enc);
+
+    QCBOREncode_CloseArray(&enc);
+
+    UsefulBufC encoded;
+    if (QCBOREncode_Finish(&enc, &encoded) != QCBOR_SUCCESS)
+        return -1;
+
+    *out_len = encoded.len;
+    return 0;
+}
+
+/**
+ * Unwrap CEK using ECDH-ES+A128KW.
+ *
+ * @param device_cose_key   Device's COSE_Key CBOR (P-256 private key)
+ * @param dk_len            Length of device COSE_Key
+ * @param enc_info          Raw encryption_info CBOR (COSE_Encrypt)
+ * @param enc_info_len      Length of encryption_info
+ * @param wrapped_cek       A128KW-wrapped CEK from parse_cose_encrypt()
+ * @param wrapped_cek_len   Length of wrapped CEK
+ * @param cek_out           Output: unwrapped 16-byte CEK
+ */
+static int unwrap_cek_esdh(
+    const uint8_t *device_cose_key, size_t dk_len,
+    const uint8_t *enc_info, size_t enc_info_len,
+    const uint8_t *wrapped_cek, size_t wrapped_cek_len,
+    uint8_t cek_out[CEK_LEN])
+{
+    int ret = -1;
+    EVP_PKEY *priv_key = NULL;
+    EVP_PKEY *ephem_key = NULL;
+    EVP_PKEY_CTX *derive_ctx = NULL;
+    EVP_PKEY_CTX *hkdf_ctx = NULL;
+
+    /* 1. Parse device private key */
+    uint8_t dev_x[P256_COORD_LEN], dev_y[P256_COORD_LEN], dev_d[P256_COORD_LEN];
+    int has_d = 0;
+    if (parse_ec2_cose_key(device_cose_key, dk_len,
+                           dev_x, dev_y, dev_d, &has_d) != 0 || !has_d)
+        goto out;
+
+    /* 2. Parse ephemeral public key from COSE_Encrypt recipient */
+    uint8_t ephem_x[P256_COORD_LEN], ephem_y[P256_COORD_LEN];
+    const uint8_t *rcpt_prot_hdr = NULL;
+    size_t rcpt_prot_hdr_len = 0;
+    if (parse_ecdh_ephemeral(enc_info, enc_info_len,
+                              ephem_x, ephem_y,
+                              &rcpt_prot_hdr, &rcpt_prot_hdr_len) != 0)
+        goto out;
+
+    /* 3. Create OpenSSL key handles */
+    priv_key = create_ec_privkey(dev_d, dev_x, dev_y);
+    ephem_key = create_ec_pubkey(ephem_x, ephem_y);
+    if (!priv_key || !ephem_key) goto out;
+
+    /* 4. ECDH key agreement */
+    uint8_t shared_secret[P256_COORD_LEN]; /* P-256 shared secret = 32 bytes */
+    size_t shared_len = sizeof(shared_secret);
+
+    derive_ctx = EVP_PKEY_CTX_new(priv_key, NULL);
+    if (!derive_ctx) goto out;
+    if (EVP_PKEY_derive_init(derive_ctx) != 1) goto out;
+    if (EVP_PKEY_derive_set_peer(derive_ctx, ephem_key) != 1) goto out;
+    if (EVP_PKEY_derive(derive_ctx, shared_secret, &shared_len) != 1) goto out;
+
+    /* 5. Build KDF context */
+    uint8_t kdf_ctx_buf[128];
+    size_t kdf_ctx_len = 0;
+    if (build_kdf_context(rcpt_prot_hdr, rcpt_prot_hdr_len,
+                          kdf_ctx_buf, sizeof(kdf_ctx_buf), &kdf_ctx_len) != 0)
+        goto out;
+
+    /* 6. HKDF-SHA256: derive 16-byte KEK */
+    uint8_t kek[CEK_LEN];
+    size_t kek_len = CEK_LEN;
+
+    hkdf_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    if (!hkdf_ctx) goto out;
+    if (EVP_PKEY_derive_init(hkdf_ctx) != 1) goto out;
+    if (EVP_PKEY_CTX_set_hkdf_md(hkdf_ctx, EVP_sha256()) != 1) goto out;
+    if (EVP_PKEY_CTX_set1_hkdf_salt(hkdf_ctx, (const unsigned char *)"", 0) != 1) goto out;
+    if (EVP_PKEY_CTX_set1_hkdf_key(hkdf_ctx, shared_secret, (int)shared_len) != 1) goto out;
+    if (EVP_PKEY_CTX_add1_hkdf_info(hkdf_ctx, kdf_ctx_buf, (int)kdf_ctx_len) != 1) goto out;
+    if (EVP_PKEY_derive(hkdf_ctx, kek, &kek_len) != 1) goto out;
+
+    /* 7. A128KW unwrap CEK */
+    ret = unwrap_cek_a128kw(kek, kek_len, wrapped_cek, wrapped_cek_len, cek_out);
+
+    OPENSSL_cleanse(kek, sizeof(kek));
+    OPENSSL_cleanse(shared_secret, sizeof(shared_secret));
+
+out:
+    OPENSSL_cleanse(dev_d, sizeof(dev_d));
+    if (hkdf_ctx) EVP_PKEY_CTX_free(hkdf_ctx);
+    if (derive_ctx) EVP_PKEY_CTX_free(derive_ctx);
+    if (ephem_key) EVP_PKEY_free(ephem_key);
+    if (priv_key) EVP_PKEY_free(priv_key);
+    return ret;
 }
 
 /* --- CEK unwrap --- */
@@ -277,9 +702,15 @@ sum2_decryptor_t *sum2_decryptor_create(
                               wrapped_cek, wrapped_cek_len, cek) != 0) {
             return NULL;
         }
+    } else if (recipient_alg == -29) {
+        /* ECDH-ES+A128KW: device_key is COSE_Key CBOR (P-256 private key) */
+        if (unwrap_cek_esdh(device_key, dk_len,
+                            enc_info.ptr, enc_info.len,
+                            wrapped_cek, wrapped_cek_len, cek) != 0) {
+            return NULL;
+        }
     } else {
-        /* TODO: ECDH-ES+A128KW (alg=-29) requires ECDH + HKDF + A128KW */
-        return NULL;
+        return NULL; /* Unsupported algorithm */
     }
 
     /* Allocate and initialize the decryptor */

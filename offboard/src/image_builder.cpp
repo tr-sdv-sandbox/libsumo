@@ -2,15 +2,15 @@
  * @file image_builder.cpp
  * @brief L2 ECU image manifest builder.
  *
- * Wraps libcsuit's encode API with a fluent C++ interface.
+ * Wraps the C envelope builder with a fluent C++ interface.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "sum2/image_builder.h"
 
 #include <stdexcept>
+#include <cstring>
 
-/* libcsuit headers (C) */
 #include "csuit_wrapper.h"
 
 namespace sum2 {
@@ -18,9 +18,9 @@ namespace sum2 {
 // --- CoseKey ---
 
 struct CoseKey::Impl {
-    std::vector<uint8_t> key_bytes;   // Raw key material (COSE_Key CBOR or DER)
-    std::vector<uint8_t> kid;         // Key identifier
-    int algorithm = 0;                // COSE algorithm ID
+    std::vector<uint8_t> key_bytes;   // COSE_Key CBOR
+    std::vector<uint8_t> kid;
+    int algorithm = 0;
 };
 
 CoseKey::CoseKey() : impl_(std::make_unique<Impl>()) {}
@@ -31,27 +31,23 @@ CoseKey& CoseKey::operator=(CoseKey&&) noexcept = default;
 CoseKey CoseKey::FromDer(std::span<const uint8_t> der) {
     CoseKey k;
     k.impl_->key_bytes.assign(der.begin(), der.end());
-    /* TODO: parse DER into suit_key_t via libcsuit or backend */
     return k;
 }
 
 CoseKey CoseKey::FromCoseKeyBytes(std::span<const uint8_t> cose_key) {
     CoseKey k;
     k.impl_->key_bytes.assign(cose_key.begin(), cose_key.end());
-    /* TODO: parse COSE_Key CBOR into suit_key_t */
     return k;
 }
 
 CoseKey CoseKey::FromPem(std::string_view pem) {
     CoseKey k;
-    /* TODO: parse PEM into suit_key_t via backend */
     (void)pem;
-    return k;
+    throw std::runtime_error("CoseKey::FromPem not yet implemented");
 }
 
 std::vector<uint8_t> CoseKey::PublicKeyBytes() const {
-    /* TODO: extract public key bytes */
-    return {};
+    return impl_->key_bytes;
 }
 
 std::vector<uint8_t> CoseKey::KeyId() const {
@@ -67,6 +63,8 @@ struct ImageManifestBuilder::Impl {
     Uuid class_id{};
     SemVer semver{};
     bool has_semver = false;
+    bool has_vendor_id = false;
+    bool has_class_id = false;
 
     std::vector<uint8_t> payload_digest;
     uint64_t payload_size = 0;
@@ -94,11 +92,13 @@ ImageManifestBuilder& ImageManifestBuilder::SetSequenceNumber(uint64_t seq) {
 
 ImageManifestBuilder& ImageManifestBuilder::SetVendorId(Uuid vendor) {
     impl_->vendor_id = vendor;
+    impl_->has_vendor_id = true;
     return *this;
 }
 
 ImageManifestBuilder& ImageManifestBuilder::SetClassId(Uuid class_id) {
     impl_->class_id = class_id;
+    impl_->has_class_id = true;
     return *this;
 }
 
@@ -133,43 +133,67 @@ ImageManifestBuilder& ImageManifestBuilder::SetEncryptionInfo(
 }
 
 std::vector<uint8_t> ImageManifestBuilder::Build(const CoseKey& signing_key) {
-    /*
-     * TODO: implementation outline:
-     *
-     * 1. Allocate suit_envelope_t and populate:
-     *    - manifest.version = 1
-     *    - manifest.sequence_number = impl_->sequence_number
-     *    - manifest.common.components = [impl_->component_id]
-     *    - manifest.common.shared_seq:
-     *        override-parameters { vendor-id, class-id, image-digest, image-size }
-     *        condition-vendor-identifier
-     *        condition-class-identifier
-     *
-     * 2. Build payload-fetch sequence:
-     *    - set-component-index(0)
-     *    - override-parameters { uri: impl_->payload_uri }
-     *    - If fallback URIs: try-each with alternatives
-     *    - If encryption: override-parameters { encryption-info }
-     *    - directive-fetch
-     *
-     * 3. Build install sequence:
-     *    - set-component-index(0)
-     *    - If encrypted: directive-copy (decrypt + write)
-     *    - condition-image-match
-     *
-     * 4. Build validate sequence:
-     *    - set-component-index(0)
-     *    - condition-image-match
-     *
-     * 5. Call suit_encode_envelope() to serialize to CBOR
-     * 6. Call suit_sign_cose_sign1() to wrap in COSE_Sign1
-     * 7. Build final SUIT_Envelope with auth wrapper
-     *
-     * Return the complete envelope as CBOR bytes.
-     */
+    sum2_envelope_builder_t *eb = sum2_eb_create();
+    if (!eb)
+        throw std::runtime_error("Failed to create envelope builder");
 
-    (void)signing_key;
-    throw std::runtime_error("ImageManifestBuilder::Build not yet implemented");
+    sum2_eb_set_sequence_number(eb, impl_->sequence_number);
+
+    if (!impl_->component_id.empty()) {
+        std::vector<const char *> segs;
+        for (auto &s : impl_->component_id)
+            segs.push_back(s.c_str());
+        if (sum2_eb_add_component(eb, segs.data(), segs.size()) != 0) {
+            sum2_eb_free(eb);
+            throw std::runtime_error("Failed to set component ID");
+        }
+    }
+
+    if (impl_->has_vendor_id)
+        sum2_eb_set_vendor_id(eb, impl_->vendor_id.bytes);
+    if (impl_->has_class_id)
+        sum2_eb_set_class_id(eb, impl_->class_id.bytes);
+
+    if (!impl_->payload_digest.empty()) {
+        sum2_eb_set_image_digest_sha256(
+            eb, impl_->payload_digest.data(), impl_->payload_size);
+    }
+
+    if (!impl_->payload_uri.empty())
+        sum2_eb_set_payload_uri(eb, impl_->payload_uri.c_str());
+
+    if (!impl_->encryption_info.empty()) {
+        sum2_eb_set_encryption_info(
+            eb, impl_->encryption_info.data(), impl_->encryption_info.size());
+    }
+
+    /* Determine signing mode from key.
+     * For now: if the key has COSE_Key bytes, pass them through.
+     * The caller specifies the algorithm via the key's algorithm field,
+     * but for simplicity we default to HMAC256/MAC0 if key.algorithm==5,
+     * otherwise ES256/Sign1. */
+    const auto &kb = signing_key.impl_->key_bytes;
+    int cose_tag = 17;  /* COSE_Mac0 default */
+    int algorithm = 5;  /* HMAC256 default */
+    if (signing_key.impl_->algorithm != 0) {
+        algorithm = signing_key.impl_->algorithm;
+        if (algorithm == -7 || algorithm == -8 || algorithm == -9) {
+            cose_tag = 18; /* COSE_Sign1 for asymmetric */
+        }
+    }
+
+    std::vector<uint8_t> out(8192);
+    size_t out_len = 0;
+    int rc = sum2_eb_encode(eb,
+                            kb.data(), kb.size(),
+                            cose_tag, algorithm,
+                            out.data(), out.size(), &out_len);
+    sum2_eb_free(eb);
+    if (rc != 0)
+        throw std::runtime_error("Failed to encode envelope (rc=" + std::to_string(rc) + ")");
+
+    out.resize(out_len);
+    return out;
 }
 
 } // namespace sum2

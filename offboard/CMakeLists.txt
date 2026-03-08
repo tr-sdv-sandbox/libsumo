@@ -12,6 +12,10 @@ target_include_directories(sum2_offboard
     PUBLIC  include
 )
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ZSTD REQUIRED libzstd)
+
 target_link_libraries(sum2_offboard
-    PUBLIC  sum2_3rdparty
+    PUBLIC  sum2_3rdparty ${ZSTD_LIBRARIES}
 )
+target_include_directories(sum2_offboard PRIVATE ${ZSTD_INCLUDE_DIRS})

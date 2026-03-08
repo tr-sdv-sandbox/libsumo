@@ -47,6 +47,10 @@ struct sum2_manifest {
     suit_mechanism_t mechanisms[SUIT_MAX_KEY_NUM];
 };
 
+/* --- Forward declarations --- */
+static const suit_parameters_t *find_shared_param(
+    const sum2_manifest_t *m, size_t component_index, int64_t param_label);
+
 /* --- Internal helpers --- */
 
 static suit_err_t init_key(const uint8_t *key_data, size_t key_len,
@@ -286,9 +290,12 @@ int sum2_manifest_image_size(
     const sum2_manifest_t *m, size_t component_index,
     uint64_t *size_out)
 {
-    /* TODO: extract image-size parameter from shared sequence */
-    (void)m; (void)component_index; (void)size_out;
-    return SUM2_ERR_UNSUPPORTED;
+    if (!m || !size_out) return SUM2_ERR_INVALID_ENVELOPE;
+    const suit_parameters_t *p =
+        find_shared_param(m, component_index, SUIT_PARAMETER_IMAGE_SIZE);
+    if (!p) return SUM2_ERR_UNSUPPORTED;
+    *size_out = p->value.uint64;
+    return SUM2_OK;
 }
 
 int sum2_manifest_image_digest(
@@ -296,10 +303,14 @@ int sum2_manifest_image_digest(
     const uint8_t **digest_out, size_t *digest_len_out,
     int *algorithm_out)
 {
-    /* TODO: extract image-digest parameter from shared sequence */
-    (void)m; (void)component_index;
-    (void)digest_out; (void)digest_len_out; (void)algorithm_out;
-    return SUM2_ERR_UNSUPPORTED;
+    if (!m || !digest_out || !digest_len_out) return SUM2_ERR_INVALID_ENVELOPE;
+    const suit_parameters_t *p =
+        find_shared_param(m, component_index, SUIT_PARAMETER_IMAGE_DIGEST);
+    if (!p) return SUM2_ERR_UNSUPPORTED;
+    *digest_out = p->value.digest.bytes.ptr;
+    *digest_len_out = p->value.digest.bytes.len;
+    if (algorithm_out) *algorithm_out = p->value.digest.algorithm_id;
+    return SUM2_OK;
 }
 
 /* --- Shared-sequence parameter helpers --- */
