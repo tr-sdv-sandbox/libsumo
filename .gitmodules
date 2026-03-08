@@ -1,0 +1,3 @@
+[submodule "3rdparty/libcsuit"]
+	path = 3rdparty/libcsuit
+	url = https://github.com/kentakayama/libcsuit.git
