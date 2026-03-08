@@ -11,18 +11,16 @@
 #include <stdexcept>
 
 /* libcsuit headers (C) */
-extern "C" {
-#include "csuit/csuit.h"
-}
+#include "csuit_wrapper.h"
 
 namespace sum2 {
 
 // --- CoseKey ---
 
 struct CoseKey::Impl {
-    suit_key_t suit_key{};
-    std::vector<uint8_t> key_bytes;
-    std::vector<uint8_t> kid;
+    std::vector<uint8_t> key_bytes;   // Raw key material (COSE_Key CBOR or DER)
+    std::vector<uint8_t> kid;         // Key identifier
+    int algorithm = 0;                // COSE algorithm ID
 };
 
 CoseKey::CoseKey() : impl_(std::make_unique<Impl>()) {}

@@ -13,6 +13,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "sum2/validator.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,7 +48,7 @@ typedef struct {
  * applies them via sum2_validator_set_min_sequence / set_reject_before.
  */
 int sum2_policy_load(
-    struct sum2_validator *v,
+    sum2_validator_t *v,
     const sum2_storage_ops_t *storage
 );
 
@@ -56,7 +57,7 @@ int sum2_policy_load(
  * Stores the new sequence number for the updated component(s).
  */
 int sum2_policy_save(
-    const struct sum2_manifest *manifest,
+    const sum2_manifest_t *manifest,
     const sum2_storage_ops_t *storage
 );
 

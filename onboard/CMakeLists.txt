@@ -9,13 +9,10 @@ add_library(sum2_onboard STATIC
 
 target_include_directories(sum2_onboard
     PUBLIC  include
-    PRIVATE ${CMAKE_SOURCE_DIR}/3rdparty/libcsuit/inc
-            ${CMAKE_SOURCE_DIR}/3rdparty/libcsuit/3rdparty/QCBOR/inc
-            ${CMAKE_SOURCE_DIR}/3rdparty/libcsuit/3rdparty/t_cose/inc
 )
 
 target_link_libraries(sum2_onboard
-    PUBLIC  csuit
+    PUBLIC  sum2_3rdparty
 )
 
 # Platform sources — select one at build time

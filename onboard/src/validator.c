@@ -115,7 +115,7 @@ uint64_t sum2_manifest_sequence_number(const sum2_manifest_t *m)
 size_t sum2_manifest_component_count(const sum2_manifest_t *m)
 {
     if (!m) return 0;
-    return m->envelope.manifest.common.components.len;
+    return m->envelope.manifest.common.components_len;
 }
 
 size_t sum2_manifest_dependency_count(const sum2_manifest_t *m)

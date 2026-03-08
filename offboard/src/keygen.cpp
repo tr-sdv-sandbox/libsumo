@@ -8,9 +8,7 @@
 
 #include <stdexcept>
 
-extern "C" {
-#include "csuit/csuit.h"
-}
+#include "csuit_wrapper.h"
 
 namespace sum2 {
 

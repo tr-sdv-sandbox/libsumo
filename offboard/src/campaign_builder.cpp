@@ -8,9 +8,7 @@
 
 #include <stdexcept>
 
-extern "C" {
-#include "csuit/csuit.h"
-}
+#include "csuit_wrapper.h"
 
 namespace sum2 {
 
@@ -51,22 +49,21 @@ CampaignBuilder& CampaignBuilder::SetClassId(Uuid class_id) {
 CampaignBuilder& CampaignBuilder::AddImage(
     std::string fetch_uri,
     std::span<const uint8_t> l2_envelope) {
-    impl_->dependencies.push_back({
-        std::move(fetch_uri),
-        {l2_envelope.begin(), l2_envelope.end()},
-        {}
-    });
+    Impl::Dependency dep;
+    dep.fetch_uri = std::move(fetch_uri);
+    dep.l2_envelope.assign(l2_envelope.begin(), l2_envelope.end());
+    impl_->dependencies.push_back(std::move(dep));
     return *this;
 }
 
 CampaignBuilder& CampaignBuilder::AddIntegratedImage(
     std::string key,
     std::span<const uint8_t> l2_envelope) {
-    impl_->dependencies.push_back({
-        key,
-        {l2_envelope.begin(), l2_envelope.end()},
-        std::move(key)
-    });
+    Impl::Dependency dep;
+    dep.fetch_uri = key;
+    dep.l2_envelope.assign(l2_envelope.begin(), l2_envelope.end());
+    dep.integrated_key = std::move(key);
+    impl_->dependencies.push_back(std::move(dep));
     return *this;
 }
 
