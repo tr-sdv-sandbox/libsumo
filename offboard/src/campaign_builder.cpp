@@ -8,6 +8,7 @@
 
 #include <stdexcept>
 
+#include "cose_key_impl.h"
 #include "csuit_wrapper.h"
 
 namespace sum2 {
@@ -68,45 +69,50 @@ CampaignBuilder& CampaignBuilder::AddIntegratedImage(
 }
 
 std::vector<uint8_t> CampaignBuilder::Build(const CoseKey& signing_key) {
-    /*
-     * TODO: implementation outline:
-     *
-     * 1. Compute SHA-256 digest of each L2 envelope
-     *
-     * 2. Allocate suit_envelope_t and populate:
-     *    - manifest.version = 1
-     *    - manifest.sequence_number = impl_->sequence_number
-     *    - manifest.common.dependencies = [one per L2 manifest]
-     *    - manifest.common.shared_seq:
-     *        override-parameters { vendor-id, class-id }
-     *        condition-vendor-identifier
-     *        condition-class-identifier
-     *
-     * 3. Build dependency-resolution sequence:
-     *    For each dependency i:
-     *      set-component-index(i)
-     *      override-parameters { uri, image-digest of L2 envelope }
-     *      directive-fetch
-     *      condition-dependency-integrity
-     *
-     * 4. Build install sequence:
-     *    For each dependency i (in order):
-     *      set-component-index(i)
-     *      directive-process-dependency
-     *
-     * 5. Build validate sequence:
-     *    For each dependency i:
-     *      set-component-index(i)
-     *      condition-dependency-integrity
-     *
-     * 6. For integrated dependencies:
-     *    Add L2 envelope bytes to SUIT_Envelope as integrated payloads
-     *
-     * 7. Encode + sign
-     */
+    if (impl_->dependencies.empty())
+        throw std::runtime_error("CampaignBuilder: no dependencies added");
 
-    (void)signing_key;
-    throw std::runtime_error("CampaignBuilder::Build not yet implemented");
+    /* Compute SHA-256 digest of each L2 envelope and build dep descriptors */
+    std::vector<sum2_campaign_dep_t> deps;
+    for (auto &d : impl_->dependencies) {
+        sum2_campaign_dep_t cd{};
+        cd.fetch_uri = d.fetch_uri.c_str();
+        cd.fetch_uri_len = d.fetch_uri.size();
+        cd.is_integrated = !d.integrated_key.empty();
+        cd.payload = d.l2_envelope.data();
+        cd.payload_len = d.l2_envelope.size();
+
+        sum2_sha256(d.l2_envelope.data(), d.l2_envelope.size(), cd.digest);
+        deps.push_back(cd);
+    }
+
+    /* Determine signing mode */
+    const auto &kb = signing_key.impl_->key_bytes;
+    int cose_tag = 17;  /* COSE_Mac0 default */
+    int algorithm = 5;  /* HMAC256 default */
+    if (signing_key.impl_->algorithm != 0) {
+        algorithm = signing_key.impl_->algorithm;
+        if (algorithm == -7 || algorithm == -8 || algorithm == -9) {
+            cose_tag = 18; /* COSE_Sign1 for asymmetric */
+        }
+    }
+
+    std::vector<uint8_t> out(16384);
+    size_t out_len = 0;
+    int rc = sum2_eb_encode_campaign(
+        impl_->sequence_number,
+        impl_->vendor_id.bytes,
+        impl_->class_id.bytes,
+        deps.data(), deps.size(),
+        kb.data(), kb.size(),
+        cose_tag, algorithm,
+        out.data(), out.size(), &out_len);
+
+    if (rc != 0)
+        throw std::runtime_error("Failed to encode campaign (rc=" + std::to_string(rc) + ")");
+
+    out.resize(out_len);
+    return out;
 }
 
 } // namespace sum2

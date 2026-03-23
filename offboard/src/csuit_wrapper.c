@@ -374,6 +374,190 @@ int sum2_encrypt_esdh(
     return 0;
 }
 
+/* --- Campaign builder --- */
+
+int sum2_eb_encode_campaign(
+    uint64_t seq,
+    const uint8_t *vendor_id,
+    const uint8_t *class_id,
+    const sum2_campaign_dep_t *deps, size_t num_deps,
+    const uint8_t *cose_key_cbor, size_t key_len,
+    int cose_tag, int algorithm,
+    uint8_t *out, size_t out_size, size_t *out_len)
+{
+    if (!deps || num_deps == 0 || !cose_key_cbor || !out || !out_len)
+        return -1;
+
+    suit_envelope_t env = {0};
+    suit_manifest_t *man = &env.manifest;
+    man->version = 1;
+    man->sequence_number = seq;
+
+    /* Dependencies — each needs a CBOR-encoded component identifier prefix.
+     * We build a minimal prefix [h'XX'] (CBOR: 81 41 XX) for each dep. */
+    uint8_t dep_prefix_bufs[SUIT_MAX_ARRAY_LENGTH][3];
+    man->common.dependencies.len = num_deps;
+    for (size_t i = 0; i < num_deps; i++) {
+        /* Dependency indices must be > 0 (libcsuit decoder requirement).
+         * Index 0 is reserved for the main component. */
+        uint8_t dep_idx = (uint8_t)(i + 1);
+        man->common.dependencies.dependency[i].index = dep_idx;
+        dep_prefix_bufs[i][0] = 0x81; /* array(1) */
+        dep_prefix_bufs[i][1] = 0x41; /* bstr(1) */
+        dep_prefix_bufs[i][2] = dep_idx;
+        man->common.dependencies.dependency[i].dependency_metadata.prefix.ptr = dep_prefix_bufs[i];
+        man->common.dependencies.dependency[i].dependency_metadata.prefix.len = 3;
+    }
+
+    /* Shared sequence: override-parameters + conditions for campaign */
+    suit_command_sequence_t *shared = &man->common.shared_seq;
+    size_t cmd_idx = 0;
+
+    if (vendor_id || class_id) {
+        shared->commands[cmd_idx].label = SUIT_DIRECTIVE_OVERRIDE_PARAMETERS;
+        suit_parameters_list_t *pl = &shared->commands[cmd_idx].value.params_list;
+        pl->index = 0;
+        size_t p_idx = 0;
+
+        if (vendor_id) {
+            pl->params[p_idx].label = SUIT_CONDITION_VENDOR_IDENTIFIER;
+            pl->params[p_idx].value.string.ptr = vendor_id;
+            pl->params[p_idx].value.string.len = 16;
+            p_idx++;
+        }
+        if (class_id) {
+            pl->params[p_idx].label = SUIT_CONDITION_CLASS_IDENTIFIER;
+            pl->params[p_idx].value.string.ptr = class_id;
+            pl->params[p_idx].value.string.len = 16;
+            p_idx++;
+        }
+        pl->len = p_idx;
+        cmd_idx++;
+    }
+
+    if (vendor_id) {
+        shared->commands[cmd_idx].label = SUIT_CONDITION_VENDOR_IDENTIFIER;
+        shared->commands[cmd_idx].value.uint64 = 15;
+        cmd_idx++;
+    }
+    if (class_id) {
+        shared->commands[cmd_idx].label = SUIT_CONDITION_CLASS_IDENTIFIER;
+        shared->commands[cmd_idx].value.uint64 = 15;
+        cmd_idx++;
+    }
+    shared->len = cmd_idx;
+
+    /* Dependency resolution sequence:
+     * For each dependency: set-params(uri, digest) + fetch + check-integrity */
+    man->sev_man_mem.dependency_resolution_status = SUIT_SEVERABLE_IN_MANIFEST;
+    suit_command_sequence_t *dep_res = &man->sev_man_mem.dependency_resolution;
+    size_t dr_idx = 0;
+
+    for (size_t i = 0; i < num_deps; i++) {
+        /* set-component-index to target this dependency */
+        dep_res->commands[dr_idx].label = SUIT_DIRECTIVE_SET_COMPONENT_INDEX;
+        dep_res->commands[dr_idx].value.index_arg.len = 1;
+        dep_res->commands[dr_idx].value.index_arg.index[0] = (uint8_t)(i + 1);
+        dr_idx++;
+
+        /* set-parameters: uri + image-digest */
+        dep_res->commands[dr_idx].label = SUIT_DIRECTIVE_SET_PARAMETERS;
+        suit_parameters_list_t *pl = &dep_res->commands[dr_idx].value.params_list;
+        pl->index = (uint8_t)(i + 1);
+        pl->len = 2;
+
+        /* Parameters must be in ascending label order (canonical CBOR) */
+        pl->params[0].label = SUIT_PARAMETER_IMAGE_DIGEST; /* 3 */
+        pl->params[0].value.digest.algorithm_id = SUIT_ALGORITHM_ID_SHA256;
+        pl->params[0].value.digest.bytes.ptr = deps[i].digest;
+        pl->params[0].value.digest.bytes.len = 32;
+
+        pl->params[1].label = SUIT_PARAMETER_URI; /* 21 */
+        pl->params[1].value.string.ptr = (const uint8_t *)deps[i].fetch_uri;
+        pl->params[1].value.string.len = deps[i].fetch_uri_len;
+        dr_idx++;
+
+        /* directive-fetch */
+        dep_res->commands[dr_idx].label = SUIT_DIRECTIVE_FETCH;
+        dep_res->commands[dr_idx].value.uint64 = 15;
+        dr_idx++;
+
+        /* condition-dependency-integrity */
+        dep_res->commands[dr_idx].label = SUIT_CONDITION_DEPENDENCY_INTEGRITY;
+        dep_res->commands[dr_idx].value.uint64 = 15;
+        dr_idx++;
+    }
+    dep_res->len = dr_idx;
+
+    /* Install sequence: process-dependency for each */
+    man->sev_man_mem.install_status = SUIT_SEVERABLE_IN_MANIFEST;
+    suit_command_sequence_t *install = &man->sev_man_mem.install;
+    size_t inst_idx = 0;
+
+    for (size_t i = 0; i < num_deps; i++) {
+        install->commands[inst_idx].label = SUIT_DIRECTIVE_PROCESS_DEPENDENCY;
+        install->commands[inst_idx].value.uint64 = (uint8_t)(i + 1);
+        inst_idx++;
+    }
+    install->len = inst_idx;
+
+    /* Validate sequence: dependency-integrity for each */
+    suit_command_sequence_t *validate = &man->unsev_mem.validate;
+    size_t val_idx = 0;
+    for (size_t i = 0; i < num_deps; i++) {
+        validate->commands[val_idx].label = SUIT_CONDITION_DEPENDENCY_INTEGRITY;
+        validate->commands[val_idx].value.uint64 = 15;
+        val_idx++;
+    }
+    validate->len = val_idx;
+
+    /* Integrated payloads */
+    size_t ip_idx = 0;
+    for (size_t i = 0; i < num_deps; i++) {
+        if (deps[i].is_integrated && deps[i].payload && deps[i].payload_len > 0) {
+            env.payloads.payload[ip_idx].key.ptr =
+                (const uint8_t *)deps[i].fetch_uri;
+            env.payloads.payload[ip_idx].key.len = deps[i].fetch_uri_len;
+            env.payloads.payload[ip_idx].bytes.ptr = deps[i].payload;
+            env.payloads.payload[ip_idx].bytes.len = deps[i].payload_len;
+            ip_idx++;
+        }
+    }
+    env.payloads.len = ip_idx;
+
+    /* Encode + sign */
+    suit_encoder_context_t *enc_ctx =
+        malloc(sizeof(suit_encoder_context_t) + ENCODE_BUF_SIZE);
+    if (!enc_ctx) return -1;
+
+    suit_err_t err = suit_encode_init(enc_ctx, ENCODE_BUF_SIZE);
+    if (err != SUIT_SUCCESS) { free(enc_ctx); return (int)err; }
+
+    suit_key_t sender_key = {0};
+    UsefulBufC key_buf = {cose_key_cbor, key_len};
+    err = suit_set_suit_key_from_cose_key(key_buf, &sender_key);
+    if (err != SUIT_SUCCESS) { free(enc_ctx); return (int)err; }
+
+    err = suit_encode_add_sender_key(enc_ctx, cose_tag, algorithm, &sender_key);
+    if (err != SUIT_SUCCESS) { suit_free_key(&sender_key); free(enc_ctx); return (int)err; }
+
+    UsefulBufC encoded;
+    err = suit_encode_envelope(enc_ctx, &env, &encoded);
+    if (err != SUIT_SUCCESS) { suit_free_key(&sender_key); free(enc_ctx); return (int)err; }
+
+    if (encoded.len > out_size) {
+        suit_free_key(&sender_key);
+        free(enc_ctx);
+        return -1;
+    }
+    memcpy(out, encoded.ptr, encoded.len);
+    *out_len = encoded.len;
+
+    suit_free_key(&sender_key);
+    free(enc_ctx);
+    return 0;
+}
+
 /* --- SHA-256 --- */
 
 int sum2_sha256(const uint8_t *data, size_t data_len, uint8_t digest[32])

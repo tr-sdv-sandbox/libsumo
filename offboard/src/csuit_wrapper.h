@@ -111,6 +111,45 @@ int sum2_encrypt_esdh(
     uint8_t *ct_out, size_t ct_out_size, size_t *ct_out_len,
     uint8_t *ei_out, size_t ei_out_size, size_t *ei_out_len);
 
+/* --- Campaign builder --- */
+
+/**
+ * Dependency info for campaign builder.
+ */
+typedef struct {
+    const char *fetch_uri;
+    size_t fetch_uri_len;
+    uint8_t digest[32];          /* SHA-256 of L2 envelope */
+    int is_integrated;           /* true if integrated payload */
+    const uint8_t *payload;      /* integrated payload bytes (NULL if external) */
+    size_t payload_len;
+} sum2_campaign_dep_t;
+
+/**
+ * Build and encode a campaign (L1) SUIT_Envelope.
+ *
+ * @param seq             Campaign sequence number
+ * @param vendor_id       16-byte vendor UUID (or NULL)
+ * @param class_id        16-byte class UUID (or NULL)
+ * @param deps            Array of dependency descriptors
+ * @param num_deps        Number of dependencies
+ * @param cose_key_cbor   Signing key COSE_Key CBOR
+ * @param key_len         Length of signing key
+ * @param cose_tag        18=Sign1, 17=Mac0
+ * @param algorithm       COSE algorithm ID
+ * @param out             Output buffer
+ * @param out_size        Buffer size
+ * @param out_len         Actual bytes written
+ */
+int sum2_eb_encode_campaign(
+    uint64_t seq,
+    const uint8_t *vendor_id,
+    const uint8_t *class_id,
+    const sum2_campaign_dep_t *deps, size_t num_deps,
+    const uint8_t *cose_key_cbor, size_t key_len,
+    int cose_tag, int algorithm,
+    uint8_t *out, size_t out_size, size_t *out_len);
+
 /* --- Utilities --- */
 
 int sum2_sha256(const uint8_t *data, size_t data_len, uint8_t digest[32]);

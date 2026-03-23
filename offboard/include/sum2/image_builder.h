@@ -59,6 +59,8 @@ private:
     friend class Encryptor;
     friend CoseKey GenerateSigningKey(int algorithm);
     friend CoseKey GenerateDeviceKey(int algorithm);
+    friend std::vector<uint8_t> SerializeKey(const CoseKey& key, bool include_private);
+    friend std::string SerializeKeyPem(const CoseKey& key, bool include_private);
 };
 
 /**

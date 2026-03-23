@@ -11,17 +11,16 @@
 #include <stdexcept>
 #include <cstring>
 
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
+
+#include "cose_key_impl.h"
 #include "csuit_wrapper.h"
 
 namespace sum2 {
 
 // --- CoseKey ---
-
-struct CoseKey::Impl {
-    std::vector<uint8_t> key_bytes;   // COSE_Key CBOR
-    std::vector<uint8_t> kid;
-    int algorithm = 0;
-};
 
 CoseKey::CoseKey() : impl_(std::make_unique<Impl>()) {}
 CoseKey::~CoseKey() = default;
@@ -37,16 +36,108 @@ CoseKey CoseKey::FromDer(std::span<const uint8_t> der) {
 CoseKey CoseKey::FromCoseKeyBytes(std::span<const uint8_t> cose_key) {
     CoseKey k;
     k.impl_->key_bytes.assign(cose_key.begin(), cose_key.end());
+
+    /* Try to extract algorithm (label 3) from the COSE_Key CBOR map.
+     * Scan for byte 0x03 (uint 3) followed by the algorithm value. */
+    for (size_t i = 1; i + 1 < cose_key.size(); i++) {
+        if (cose_key[i] == 0x03) {
+            uint8_t next = cose_key[i + 1];
+            if (next < 0x18) {
+                /* Tiny positive int (0-23) — e.g., HMAC256 = 5 */
+                k.impl_->algorithm = next;
+                break;
+            } else if (next >= 0x20 && next < 0x38) {
+                /* Tiny negative int: -1 - (next - 0x20) */
+                k.impl_->algorithm = -1 - (next - 0x20);
+                break;
+            } else if (next == 0x38 && i + 2 < cose_key.size()) {
+                /* 1-byte negative int: -1 - cose_key[i+2] */
+                k.impl_->algorithm = -1 - static_cast<int>(cose_key[i + 2]);
+                break;
+            }
+        }
+    }
+
     return k;
 }
 
 CoseKey CoseKey::FromPem(std::string_view pem) {
+    BIO *bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+    if (!bio) throw std::runtime_error("BIO_new_mem_buf failed");
+
+    EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    if (!pkey) {
+        BIO_reset(bio);
+        pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+    }
+    BIO_free(bio);
+    if (!pkey) throw std::runtime_error("Failed to parse PEM key");
+
     CoseKey k;
-    (void)pem;
-    throw std::runtime_error("CoseKey::FromPem not yet implemented");
+    k.impl_->evp_pkey = pkey;
+
+    int id = EVP_PKEY_id(pkey);
+    if (id == EVP_PKEY_EC) {
+        uint8_t x[32], y[32], d[32];
+        int has_private = 0;
+
+        BIGNUM *bn_x = nullptr, *bn_y = nullptr, *bn_d = nullptr;
+        EVP_PKEY_get_bn_param(pkey, "qx", &bn_x);
+        EVP_PKEY_get_bn_param(pkey, "qy", &bn_y);
+        has_private = (EVP_PKEY_get_bn_param(pkey, "priv", &bn_d) == 1);
+
+        if (bn_x) { BN_bn2binpad(bn_x, x, 32); BN_free(bn_x); }
+        if (bn_y) { BN_bn2binpad(bn_y, y, 32); BN_free(bn_y); }
+        if (bn_d && has_private) { BN_bn2binpad(bn_d, d, 32); BN_free(bn_d); }
+
+        k.impl_->algorithm = -7; /* ES256 */
+
+        /* Compute kid = SHA-256(x || y) */
+        uint8_t combined[64];
+        memcpy(combined, x, 32);
+        memcpy(combined + 32, y, 32);
+        k.impl_->kid.resize(32);
+        sum2_sha256(combined, 64, k.impl_->kid.data());
+
+        /* Build COSE_Key CBOR using the same helper approach as keygen.cpp */
+        auto build_ec2 = [&](const uint8_t *priv) -> std::vector<uint8_t> {
+            std::vector<uint8_t> buf;
+            size_t n = 5 + 1 + (priv ? 1 : 0); /* kty, kid, alg, crv, x, y [, d] */
+            /* map header */
+            buf.push_back(static_cast<uint8_t>(0xA0 | (n & 0x1F)));
+            /* 1: kty = EC2 (2) */
+            buf.push_back(0x01); buf.push_back(0x02);
+            /* 2: kid */
+            buf.push_back(0x02); buf.push_back(0x58); buf.push_back(0x20);
+            buf.insert(buf.end(), k.impl_->kid.begin(), k.impl_->kid.end());
+            /* 3: alg = ES256 (-7) */
+            buf.push_back(0x03); buf.push_back(0x26); /* -7 */
+            /* -1: crv = P-256 (1) */
+            buf.push_back(0x20); buf.push_back(0x01);
+            /* -2: x */
+            buf.push_back(0x21); buf.push_back(0x58); buf.push_back(0x20);
+            buf.insert(buf.end(), x, x + 32);
+            /* -3: y */
+            buf.push_back(0x22); buf.push_back(0x58); buf.push_back(0x20);
+            buf.insert(buf.end(), y, y + 32);
+            /* -4: d (optional) */
+            if (priv) {
+                buf.push_back(0x23); buf.push_back(0x58); buf.push_back(0x20);
+                buf.insert(buf.end(), priv, priv + 32);
+            }
+            return buf;
+        };
+
+        k.impl_->key_bytes = build_ec2(has_private ? d : nullptr);
+        k.impl_->public_key_bytes = build_ec2(nullptr);
+    }
+
+    return k;
 }
 
 std::vector<uint8_t> CoseKey::PublicKeyBytes() const {
+    if (!impl_->public_key_bytes.empty())
+        return impl_->public_key_bytes;
     return impl_->key_bytes;
 }
 

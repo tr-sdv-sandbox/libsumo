@@ -12,6 +12,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "sum2/validator.h"
+#include "sum2_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,13 +40,13 @@ struct sum2_validator {
     uint64_t min_seq;       /* anti-rollback: must be strictly > */
     int has_min_seq;        /* true once set_min_sequence called */
     int64_t reject_before;  /* timestamp-based revocation */
+
+    /* Device decryption key (COSE_Key CBOR or raw symmetric key) */
+    uint8_t device_key[256];
+    size_t device_key_len;
 };
 
-struct sum2_manifest {
-    suit_envelope_t envelope;
-    /* Which mechanisms[] slots were used during verification */
-    suit_mechanism_t mechanisms[SUIT_MAX_KEY_NUM];
-};
+/* sum2_manifest is defined in sum2_internal.h */
 
 /* --- Forward declarations --- */
 static const suit_parameters_t *find_shared_param(
@@ -151,9 +152,24 @@ int sum2_validator_add_device_key(
     const uint8_t *key, size_t key_len,
     const uint8_t *kid, size_t kid_len)
 {
-    /* TODO: store device key for COSE_Encrypt recipient matching */
-    (void)v; (void)key; (void)key_len; (void)kid; (void)kid_len;
-    return SUM2_ERR_UNSUPPORTED;
+    if (!v || !key || key_len == 0) return SUM2_ERR_INVALID_ENVELOPE;
+    if (key_len > sizeof(v->device_key)) return SUM2_ERR_INVALID_ENVELOPE;
+    (void)kid; (void)kid_len;
+
+    memcpy(v->device_key, key, key_len);
+    v->device_key_len = key_len;
+    return SUM2_OK;
+}
+
+int sum2_validator_get_device_key(
+    const sum2_validator_t *v,
+    const uint8_t **key_out, size_t *key_len_out)
+{
+    if (!v || !key_out || !key_len_out) return SUM2_ERR_INVALID_ENVELOPE;
+    if (v->device_key_len == 0) return SUM2_ERR_UNSUPPORTED;
+    *key_out = v->device_key;
+    *key_len_out = v->device_key_len;
+    return SUM2_OK;
 }
 
 int sum2_validator_set_min_sequence(

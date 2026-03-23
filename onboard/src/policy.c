@@ -10,6 +10,7 @@
 #include <string.h>
 
 #define REVOCATION_KEY "sum2_reject_before"
+#define SEQUENCE_KEY   "sum2_seq"
 
 int sum2_policy_load(
     sum2_validator_t *v,
@@ -23,16 +24,11 @@ int sum2_policy_load(
         sum2_validator_set_reject_before(v, reject_before);
     }
 
-    /*
-     * TODO: Load per-component sequence numbers.
-     *
-     * Convention: key = "sum2_seq_<component_id_hex>"
-     * For each stored key, call sum2_validator_set_min_sequence().
-     *
-     * This requires either:
-     *   a) A known list of component IDs (configured at init), or
-     *   b) An enumerate/iterate API on the storage backend
-     */
+    /* Load global sequence number */
+    uint64_t seq = 0;
+    if (storage->read_u64(SEQUENCE_KEY, &seq, storage->ctx) == 0) {
+        sum2_validator_set_min_sequence(v, NULL, 0, seq);
+    }
 
     return 0;
 }
@@ -43,12 +39,10 @@ int sum2_policy_save(
 {
     if (!manifest || !storage) return -1;
 
-    /*
-     * TODO: Persist sequence number for each component in the manifest.
-     *
-     * For campaign manifests: persist the campaign sequence number.
-     * For image manifests: persist the per-ECU sequence number.
-     */
+    uint64_t seq = sum2_manifest_sequence_number(manifest);
+    if (storage->write_u64(SEQUENCE_KEY, seq, storage->ctx) != 0) {
+        return -1;
+    }
 
     return 0;
 }

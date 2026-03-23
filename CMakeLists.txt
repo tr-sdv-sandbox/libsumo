@@ -33,8 +33,11 @@ ExternalProject_Add(libcsuit_ext
     SOURCE_DIR       ${LIBCSUIT_DIR}
     CONFIGURE_COMMAND ""
     BUILD_COMMAND     ${CMAKE_COMMAND} -E env
+        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24"
         make -C ${LIBCSUIT_DIR} build_deps ${LIBCSUIT_MBEDTLS_FLAG}
-        && make -C ${LIBCSUIT_DIR} libcsuit.a ${LIBCSUIT_MBEDTLS_FLAG}
+        && ${CMAKE_COMMAND} -E env
+        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24"
+        make -C ${LIBCSUIT_DIR} libcsuit.a ${LIBCSUIT_MBEDTLS_FLAG}
     INSTALL_COMMAND   ""
     BUILD_IN_SOURCE   TRUE
     BUILD_BYPRODUCTS
@@ -79,6 +82,11 @@ endif()
 # Bundle all 3rdparty libs into one interface target for convenience
 add_library(sum2_3rdparty INTERFACE)
 target_link_libraries(sum2_3rdparty INTERFACE csuit t_cose qcbor ${SUM2_CRYPTO_LIB} m)
+# Must match the CFLAGS passed to libcsuit build above
+target_compile_definitions(sum2_3rdparty INTERFACE
+    SUIT_MAX_DEPENDENCY_NUM=4
+    SUIT_MAX_ARRAY_LENGTH=24
+)
 
 # --- Onboard (device-side, C99) ---
 if(SUM2_BUILD_ONBOARD)

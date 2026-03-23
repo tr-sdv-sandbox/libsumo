@@ -26,6 +26,10 @@ gtest_discover_tests(sum2_onboard_tests)
 # --- E2E tests (offboard build → onboard validate + decrypt) ---
 add_executable(sum2_e2e_tests
     e2e/e2e_test.cpp
+    e2e/keygen_e2e_test.cpp
+    e2e/campaign_e2e_test.cpp
+    e2e/orchestrator_e2e_test.cpp
+    e2e/policy_e2e_test.cpp
 )
 
 target_link_libraries(sum2_e2e_tests PRIVATE

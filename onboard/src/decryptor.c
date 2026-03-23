@@ -10,6 +10,7 @@
  */
 #include "sum2/decryptor.h"
 #include "sum2/validator.h"
+#include "sum2_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -611,12 +612,7 @@ out:
 static UsefulBufC find_encryption_info(
     const sum2_manifest_t *m, size_t component_index);
 
-/* Implemented via the opaque manifest — we need access to the
- * envelope internals. Declare the struct here (matches validator.c). */
-struct sum2_manifest {
-    suit_envelope_t envelope;
-    suit_mechanism_t mechanisms[SUIT_MAX_KEY_NUM];
-};
+/* sum2_manifest is defined in sum2_internal.h */
 
 static UsefulBufC search_cmd_seq_for_param(
     const suit_command_sequence_t *seq,
