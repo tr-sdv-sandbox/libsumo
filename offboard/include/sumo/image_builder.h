@@ -8,8 +8,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_IMAGE_BUILDER_H
-#define SUM2_IMAGE_BUILDER_H
+#ifndef SUMO_IMAGE_BUILDER_H
+#define SUMO_IMAGE_BUILDER_H
 
 #include <cstdint>
 #include <memory>
@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace sum2 {
+namespace sumo {
 
 struct Uuid {
     uint8_t bytes[16];
@@ -118,6 +118,6 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace sum2
+} // namespace sumo
 
-#endif /* SUM2_IMAGE_BUILDER_H */
+#endif /* SUMO_IMAGE_BUILDER_H */

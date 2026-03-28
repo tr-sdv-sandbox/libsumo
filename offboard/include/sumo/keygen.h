@@ -4,12 +4,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_KEYGEN_H
-#define SUM2_KEYGEN_H
+#ifndef SUMO_KEYGEN_H
+#define SUMO_KEYGEN_H
 
-#include "sum2/image_builder.h"  // CoseKey
+#include "sumo/image_builder.h"  // CoseKey
 
-namespace sum2 {
+namespace sumo {
 
 /** COSE algorithm identifiers */
 enum Algorithm {
@@ -42,6 +42,6 @@ std::vector<uint8_t> SerializeKey(const CoseKey& key, bool include_private = fal
  */
 std::string SerializeKeyPem(const CoseKey& key, bool include_private = false);
 
-} // namespace sum2
+} // namespace sumo
 
-#endif /* SUM2_KEYGEN_H */
+#endif /* SUMO_KEYGEN_H */

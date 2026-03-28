@@ -4,7 +4,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/policy.h"
+#include "sumo/policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,4 +12,4 @@
 
 /* Linux: persist policy to files in /tmp or a configurable directory */
 
-/* TODO: implement file-backed storage for sum2_storage_ops_t */
+/* TODO: implement file-backed storage for sumo_storage_ops_t */

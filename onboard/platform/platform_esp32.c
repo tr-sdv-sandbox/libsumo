@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifdef SUM2_PLATFORM_ESP32
+#ifdef SUMO_PLATFORM_ESP32
 
-/* TODO: implement NVS-backed storage for sum2_storage_ops_t */
+/* TODO: implement NVS-backed storage for sumo_storage_ops_t */
 /* TODO: implement esp_http_client-based fetch callback */
 
-#endif /* SUM2_PLATFORM_ESP32 */
+#endif /* SUMO_PLATFORM_ESP32 */

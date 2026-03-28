@@ -18,13 +18,13 @@
 #include <openssl/evp.h>
 
 /* Offboard C++ API */
-#include "sum2/image_builder.h"
-#include "sum2/encryptor.h"
+#include "sumo/image_builder.h"
+#include "sumo/encryptor.h"
 
 /* Onboard C API */
-#include "sum2/validator.h"
-#include "sum2/decryptor.h"
-#include "sum2/decompressor.h"
+#include "sumo/validator.h"
+#include "sumo/decryptor.h"
+#include "sumo/decompressor.h"
 
 /* --- Test key material (same as libcsuit examples) --- */
 
@@ -148,12 +148,12 @@ static const uint8_t ecdh_device_key_public[] = {
 };
 
 /* Test UUIDs */
-static const sum2::Uuid test_vendor = {{
+static const sumo::Uuid test_vendor = {{
     0xFA, 0x6B, 0x4A, 0x53, 0xD5, 0xAD, 0x5F, 0xDF,
     0xBE, 0x9D, 0xE6, 0x63, 0xE4, 0xD4, 0x1F, 0xFE
 }};
 
-static const sum2::Uuid test_class = {{
+static const sumo::Uuid test_class = {{
     0x14, 0x92, 0xAF, 0x14, 0x25, 0x69, 0x5E, 0x48,
     0xBF, 0x42, 0x9B, 0x2D, 0x51, 0xF2, 0xAB, 0x45
 }};
@@ -175,15 +175,15 @@ protected:
 
 TEST_F(E2ETest, EncryptBuildValidateDecrypt) {
     /* --- OFFBOARD: Encrypt firmware --- */
-    sum2::CoseKey enc_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey enc_key = sumo::CoseKey::FromCoseKeyBytes(
         {a128kw_cose_key, sizeof(a128kw_cose_key)});
 
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(enc_key),
         std::vector<uint8_t>(std::begin(raw_kek), std::end(raw_kek))});
 
-    sum2::EncryptedPayload encrypted =
-        sum2::EncryptFirmware(firmware_, recipients);
+    sumo::EncryptedPayload encrypted =
+        sumo::EncryptFirmware(firmware_, recipients);
 
     ASSERT_FALSE(encrypted.ciphertext.empty());
     ASSERT_FALSE(encrypted.encryption_info.empty());
@@ -191,14 +191,14 @@ TEST_F(E2ETest, EncryptBuildValidateDecrypt) {
     EXPECT_EQ(encrypted.ciphertext.size(), firmware_.size() + 16);
 
     /* --- OFFBOARD: Compute plaintext digest --- */
-    auto digest = sum2::Sha256(firmware_);
+    auto digest = sumo::Sha256(firmware_);
     ASSERT_EQ(digest.size(), 32u);
 
     /* --- OFFBOARD: Build manifest --- */
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(1)
         .SetVendorId(test_vendor)
@@ -211,50 +211,50 @@ TEST_F(E2ETest, EncryptBuildValidateDecrypt) {
     ASSERT_FALSE(envelope.empty());
 
     /* --- ONBOARD: Validate manifest --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    int rc = sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    int rc = sumo_validate_envelope(
         validator, envelope.data(), envelope.size(), 0, &manifest);
-    ASSERT_EQ(rc, SUM2_OK) << "Validation failed with rc=" << rc;
+    ASSERT_EQ(rc, SUMO_OK) << "Validation failed with rc=" << rc;
     ASSERT_NE(manifest, nullptr);
 
     /* Verify manifest metadata */
-    EXPECT_EQ(sum2_manifest_sequence_number(manifest), 1u);
-    EXPECT_EQ(sum2_manifest_component_count(manifest), 1u);
+    EXPECT_EQ(sumo_manifest_sequence_number(manifest), 1u);
+    EXPECT_EQ(sumo_manifest_component_count(manifest), 1u);
 
     uint8_t vendor_out[16];
-    EXPECT_EQ(sum2_manifest_vendor_id(manifest, 0, vendor_out), SUM2_OK);
+    EXPECT_EQ(sumo_manifest_vendor_id(manifest, 0, vendor_out), SUMO_OK);
     EXPECT_EQ(memcmp(vendor_out, test_vendor.bytes, 16), 0);
 
     /* Verify image digest and size are extractable */
     const uint8_t *manifest_digest = nullptr;
     size_t manifest_digest_len = 0;
     int digest_alg = 0;
-    ASSERT_EQ(sum2_manifest_image_digest(manifest, 0,
-        &manifest_digest, &manifest_digest_len, &digest_alg), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_digest(manifest, 0,
+        &manifest_digest, &manifest_digest_len, &digest_alg), SUMO_OK);
     EXPECT_EQ(manifest_digest_len, 32u);
     EXPECT_EQ(memcmp(manifest_digest, digest.data(), 32), 0);
 
     uint64_t manifest_size = 0;
-    ASSERT_EQ(sum2_manifest_image_size(manifest, 0, &manifest_size), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_size(manifest, 0, &manifest_size), SUMO_OK);
     EXPECT_EQ(manifest_size, firmware_.size());
 
     /* --- ONBOARD: Decrypt firmware --- */
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0, raw_kek, sizeof(raw_kek));
     ASSERT_NE(decryptor, nullptr) << "Failed to create decryptor";
 
     /* Feed all ciphertext in one shot */
     std::vector<uint8_t> plaintext(encrypted.ciphertext.size());
     size_t pt_len = plaintext.size();
-    rc = sum2_decryptor_update(
+    rc = sumo_decryptor_update(
         decryptor,
         encrypted.ciphertext.data(), encrypted.ciphertext.size(),
         plaintext.data(), &pt_len);
@@ -263,7 +263,7 @@ TEST_F(E2ETest, EncryptBuildValidateDecrypt) {
     /* Finalize and verify GCM tag */
     uint8_t final_buf[64];
     size_t final_len = sizeof(final_buf);
-    rc = sum2_decryptor_finalize(decryptor, final_buf, &final_len);
+    rc = sumo_decryptor_finalize(decryptor, final_buf, &final_len);
     ASSERT_EQ(rc, 0) << "Decryptor finalize failed (GCM tag mismatch?)";
 
     /* Assemble full plaintext */
@@ -271,26 +271,26 @@ TEST_F(E2ETest, EncryptBuildValidateDecrypt) {
     EXPECT_EQ(total, firmware_.size());
     EXPECT_EQ(memcmp(plaintext.data(), firmware_.data(), pt_len), 0);
 
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 TEST_F(E2ETest, StreamingDecrypt) {
     /* Same as above but feed ciphertext in small chunks */
-    sum2::CoseKey enc_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey enc_key = sumo::CoseKey::FromCoseKeyBytes(
         {a128kw_cose_key, sizeof(a128kw_cose_key)});
 
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(enc_key), {}});
 
-    auto encrypted = sum2::EncryptFirmware(firmware_, recipients);
-    auto digest = sum2::Sha256(firmware_);
+    auto encrypted = sumo::EncryptFirmware(firmware_, recipients);
+    auto digest = sumo::Sha256(firmware_);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(2)
         .SetVendorId(test_vendor)
@@ -300,19 +300,19 @@ TEST_F(E2ETest, StreamingDecrypt) {
         .SetEncryptionInfo(encrypted.encryption_info)
         .Build(signing_key);
 
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        validator, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        validator, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
 
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0, raw_kek, sizeof(raw_kek));
     ASSERT_NE(decryptor, nullptr);
 
@@ -323,7 +323,7 @@ TEST_F(E2ETest, StreamingDecrypt) {
         size_t n = std::min(chunk, encrypted.ciphertext.size() - off);
         uint8_t pt_buf[64];
         size_t pt_len = sizeof(pt_buf);
-        int rc = sum2_decryptor_update(
+        int rc = sumo_decryptor_update(
             decryptor,
             encrypted.ciphertext.data() + off, n,
             pt_buf, &pt_len);
@@ -333,24 +333,24 @@ TEST_F(E2ETest, StreamingDecrypt) {
 
     uint8_t final_buf[64];
     size_t final_len = sizeof(final_buf);
-    ASSERT_EQ(sum2_decryptor_finalize(decryptor, final_buf, &final_len), 0);
+    ASSERT_EQ(sumo_decryptor_finalize(decryptor, final_buf, &final_len), 0);
     all_pt.insert(all_pt.end(), final_buf, final_buf + final_len);
 
     EXPECT_EQ(all_pt.size(), firmware_.size());
     EXPECT_EQ(all_pt, firmware_);
 
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 TEST_F(E2ETest, WrongMacKeyRejectsManifest) {
     /* Build a valid manifest */
-    auto digest = sum2::Sha256(firmware_);
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    auto digest = sumo::Sha256(firmware_);
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(1)
         .SetVendorId(test_vendor)
@@ -364,26 +364,26 @@ TEST_F(E2ETest, WrongMacKeyRejectsManifest) {
     memcpy(wrong_key, hmac256_cose_key, sizeof(hmac256_cose_key));
     wrong_key[sizeof(wrong_key) - 1] ^= 0xFF; /* flip last byte of k */
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         wrong_key, sizeof(wrong_key), nullptr);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    int rc = sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    int rc = sumo_validate_envelope(
         validator, envelope.data(), envelope.size(), 0, &manifest);
-    EXPECT_NE(rc, SUM2_OK) << "Should have rejected with wrong key";
+    EXPECT_NE(rc, SUMO_OK) << "Should have rejected with wrong key";
     EXPECT_EQ(manifest, nullptr);
 
-    sum2_validator_free(validator);
+    sumo_validator_free(validator);
 }
 
 TEST_F(E2ETest, UnencryptedManifest) {
     /* Build manifest without encryption info */
-    auto digest = sum2::Sha256(firmware_);
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    auto digest = sumo::Sha256(firmware_);
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(1)
         .SetVendorId(test_vendor)
@@ -392,28 +392,28 @@ TEST_F(E2ETest, UnencryptedManifest) {
         .SetPayloadUri("https://fw.example.com/ecu-a.bin")
         .Build(signing_key);
 
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        validator, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        validator, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
     ASSERT_NE(manifest, nullptr);
 
-    EXPECT_EQ(sum2_manifest_sequence_number(manifest), 1u);
+    EXPECT_EQ(sumo_manifest_sequence_number(manifest), 1u);
 
     /* No encryption info → decryptor should fail to create */
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0, raw_kek, sizeof(raw_kek));
     EXPECT_EQ(decryptor, nullptr) << "Should fail: no encryption info";
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 /**
@@ -431,20 +431,20 @@ TEST_F(E2ETest, RealisticStreamingDecrypt1MB) {
         big_fw[i] = static_cast<uint8_t>(i ^ (i >> 8) ^ (i >> 16));
 
     /* --- OFFBOARD --- */
-    sum2::CoseKey enc_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey enc_key = sumo::CoseKey::FromCoseKeyBytes(
         {a128kw_cose_key, sizeof(a128kw_cose_key)});
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(enc_key), {}});
 
-    auto encrypted = sum2::EncryptFirmware(big_fw, recipients);
+    auto encrypted = sumo::EncryptFirmware(big_fw, recipients);
     ASSERT_EQ(encrypted.ciphertext.size(), FW_SIZE + 16);
 
-    auto digest = sum2::Sha256(big_fw);
+    auto digest = sumo::Sha256(big_fw);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(10)
         .SetVendorId(test_vendor)
@@ -455,31 +455,31 @@ TEST_F(E2ETest, RealisticStreamingDecrypt1MB) {
         .Build(signing_key);
 
     /* --- ONBOARD: Validate --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        validator, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        validator, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
 
     /* Extract expected digest and size from manifest */
     const uint8_t *expected_digest = nullptr;
     size_t expected_digest_len = 0;
-    ASSERT_EQ(sum2_manifest_image_digest(manifest, 0,
-        &expected_digest, &expected_digest_len, nullptr), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_digest(manifest, 0,
+        &expected_digest, &expected_digest_len, nullptr), SUMO_OK);
     ASSERT_EQ(expected_digest_len, 32u);
 
     uint64_t expected_size = 0;
-    ASSERT_EQ(sum2_manifest_image_size(manifest, 0, &expected_size), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_size(manifest, 0, &expected_size), SUMO_OK);
     ASSERT_EQ(expected_size, FW_SIZE);
 
     /* --- ONBOARD: Stream-decrypt with 4KB buffer (simulating flash writes) --- */
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0, raw_kek, sizeof(raw_kek));
     ASSERT_NE(decryptor, nullptr);
 
@@ -495,7 +495,7 @@ TEST_F(E2ETest, RealisticStreamingDecrypt1MB) {
     for (size_t off = 0; off < encrypted.ciphertext.size(); off += CHUNK) {
         size_t n = std::min(CHUNK, encrypted.ciphertext.size() - off);
         size_t pt_len = sizeof(pt_buf);
-        int rc = sum2_decryptor_update(
+        int rc = sumo_decryptor_update(
             decryptor,
             encrypted.ciphertext.data() + off, n,
             pt_buf, &pt_len);
@@ -515,7 +515,7 @@ TEST_F(E2ETest, RealisticStreamingDecrypt1MB) {
 
     /* Finalize — verify GCM authentication tag */
     size_t final_len = sizeof(pt_buf);
-    ASSERT_EQ(sum2_decryptor_finalize(decryptor, pt_buf, &final_len), 0)
+    ASSERT_EQ(sumo_decryptor_finalize(decryptor, pt_buf, &final_len), 0)
         << "GCM tag verification failed";
 
     if (final_len > 0) {
@@ -533,9 +533,9 @@ TEST_F(E2ETest, RealisticStreamingDecrypt1MB) {
     EXPECT_EQ(memcmp(computed_digest, expected_digest, 32), 0)
         << "Plaintext digest mismatch — firmware corrupted";
 
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 /**
@@ -553,25 +553,25 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
         big_fw[i] = static_cast<uint8_t>(i % 251);  /* modular pattern */
 
     /* --- OFFBOARD: compress → encrypt → manifest --- */
-    auto compressed = sum2::CompressFirmware(big_fw);
+    auto compressed = sumo::CompressFirmware(big_fw);
     ASSERT_LT(compressed.size(), FW_SIZE)
         << "Compression should reduce size";
 
-    sum2::CoseKey enc_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey enc_key = sumo::CoseKey::FromCoseKeyBytes(
         {a128kw_cose_key, sizeof(a128kw_cose_key)});
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(enc_key), {}});
 
     /* Encrypt the COMPRESSED data */
-    auto encrypted = sum2::EncryptFirmware(compressed, recipients);
+    auto encrypted = sumo::EncryptFirmware(compressed, recipients);
 
     /* Digest and size are of the PLAINTEXT (pre-compression) */
-    auto digest = sum2::Sha256(big_fw);
+    auto digest = sumo::Sha256(big_fw);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(20)
         .SetVendorId(test_vendor)
@@ -582,33 +582,33 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
         .Build(signing_key);
 
     /* --- ONBOARD: validate --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        validator, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        validator, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
 
     uint64_t expected_size = 0;
-    ASSERT_EQ(sum2_manifest_image_size(manifest, 0, &expected_size), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_size(manifest, 0, &expected_size), SUMO_OK);
     ASSERT_EQ(expected_size, FW_SIZE);
 
     const uint8_t *expected_digest = nullptr;
     size_t expected_digest_len = 0;
-    ASSERT_EQ(sum2_manifest_image_digest(manifest, 0,
-        &expected_digest, &expected_digest_len, nullptr), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_digest(manifest, 0,
+        &expected_digest, &expected_digest_len, nullptr), SUMO_OK);
 
     /* --- ONBOARD: stream decrypt → decompress --- */
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0, raw_kek, sizeof(raw_kek));
     ASSERT_NE(decryptor, nullptr);
 
-    sum2_decompressor_t *decompressor = sum2_decompressor_create();
+    sumo_decompressor_t *decompressor = sumo_decompressor_create();
     ASSERT_NE(decompressor, nullptr);
 
     EVP_MD_CTX *hash_ctx = EVP_MD_CTX_new();
@@ -624,7 +624,7 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
         while (pos < len) {
             size_t remaining = len - pos;
             size_t out_len = sizeof(decomp_buf);
-            ASSERT_EQ(sum2_decompressor_update(decompressor,
+            ASSERT_EQ(sumo_decompressor_update(decompressor,
                 data + pos, &remaining,
                 decomp_buf, &out_len), 0);
             pos += remaining;
@@ -645,7 +645,7 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
 
         /* Decrypt chunk */
         size_t dec_len = sizeof(dec_buf);
-        ASSERT_EQ(sum2_decryptor_update(decryptor,
+        ASSERT_EQ(sumo_decryptor_update(decryptor,
             encrypted.ciphertext.data() + off, n,
             dec_buf, &dec_len), 0);
 
@@ -656,7 +656,7 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
 
     /* Finalize decryption (verify GCM tag) */
     size_t final_dec_len = sizeof(dec_buf);
-    ASSERT_EQ(sum2_decryptor_finalize(decryptor, dec_buf, &final_dec_len), 0);
+    ASSERT_EQ(sumo_decryptor_finalize(decryptor, dec_buf, &final_dec_len), 0);
 
     if (final_dec_len > 0)
         drain_decompressor(dec_buf, final_dec_len);
@@ -665,14 +665,14 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
     while (true) {
         size_t zero_in = 0;
         size_t out_len = sizeof(decomp_buf);
-        ASSERT_EQ(sum2_decompressor_update(decompressor,
+        ASSERT_EQ(sumo_decompressor_update(decompressor,
             nullptr, &zero_in, decomp_buf, &out_len), 0);
         if (out_len == 0) break;
         EVP_DigestUpdate(hash_ctx, decomp_buf, out_len);
         total_decompressed += out_len;
     }
 
-    ASSERT_EQ(sum2_decompressor_finalize(decompressor), 0);
+    ASSERT_EQ(sumo_decompressor_finalize(decompressor), 0);
     EXPECT_EQ(total_decompressed, FW_SIZE);
 
     /* Verify plaintext digest */
@@ -683,10 +683,10 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
     EXPECT_EQ(memcmp(computed_digest, expected_digest, 32), 0)
         << "Decompressed firmware digest mismatch";
 
-    sum2_decompressor_free(decompressor);
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decompressor_free(decompressor);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 /**
@@ -702,30 +702,30 @@ TEST_F(E2ETest, CompressEncryptDecryptDecompress1MB) {
  */
 TEST_F(E2ETest, EcdhEsA128kwPerDeviceEncryption) {
     /* --- OFFBOARD: Encrypt with ECDH-ES+A128KW --- */
-    sum2::CoseKey sender_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey sender_key = sumo::CoseKey::FromCoseKeyBytes(
         {ecdh_sender_key, sizeof(ecdh_sender_key)});
 
     /* Use the device's private key as receiver (libcsuit extracts public part) */
-    sum2::CoseKey recv_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey recv_key = sumo::CoseKey::FromCoseKeyBytes(
         {ecdh_device_key_private, sizeof(ecdh_device_key_private)});
 
     std::vector<uint8_t> kid = {0x6B, 0x69, 0x64, 0x2D, 0x32}; /* "kid-2" */
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(recv_key), kid});
 
-    auto encrypted = sum2::EncryptFirmwareEcdh(firmware_, sender_key, recipients);
+    auto encrypted = sumo::EncryptFirmwareEcdh(firmware_, sender_key, recipients);
 
     ASSERT_FALSE(encrypted.ciphertext.empty());
     ASSERT_FALSE(encrypted.encryption_info.empty());
     EXPECT_EQ(encrypted.ciphertext.size(), firmware_.size() + 16);
 
     /* --- OFFBOARD: Build manifest --- */
-    auto digest = sum2::Sha256(firmware_);
+    auto digest = sumo::Sha256(firmware_);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(100)
         .SetVendorId(test_vendor)
@@ -738,21 +738,21 @@ TEST_F(E2ETest, EcdhEsA128kwPerDeviceEncryption) {
     ASSERT_FALSE(envelope.empty());
 
     /* --- ONBOARD: Validate manifest --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    int rc = sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    int rc = sumo_validate_envelope(
         validator, envelope.data(), envelope.size(), 0, &manifest);
-    ASSERT_EQ(rc, SUM2_OK) << "Validation failed with rc=" << rc;
+    ASSERT_EQ(rc, SUMO_OK) << "Validation failed with rc=" << rc;
 
     /* --- ONBOARD: Decrypt with device's private COSE_Key --- */
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0,
         ecdh_device_key_private, sizeof(ecdh_device_key_private));
     ASSERT_NE(decryptor, nullptr) << "ECDH decryptor creation failed";
@@ -760,7 +760,7 @@ TEST_F(E2ETest, EcdhEsA128kwPerDeviceEncryption) {
     /* One-shot decrypt */
     std::vector<uint8_t> plaintext(encrypted.ciphertext.size());
     size_t pt_len = plaintext.size();
-    rc = sum2_decryptor_update(
+    rc = sumo_decryptor_update(
         decryptor,
         encrypted.ciphertext.data(), encrypted.ciphertext.size(),
         plaintext.data(), &pt_len);
@@ -768,16 +768,16 @@ TEST_F(E2ETest, EcdhEsA128kwPerDeviceEncryption) {
 
     uint8_t final_buf[64];
     size_t final_len = sizeof(final_buf);
-    rc = sum2_decryptor_finalize(decryptor, final_buf, &final_len);
+    rc = sumo_decryptor_finalize(decryptor, final_buf, &final_len);
     ASSERT_EQ(rc, 0) << "ECDH decryptor finalize failed (GCM tag mismatch?)";
 
     size_t total = pt_len + final_len;
     EXPECT_EQ(total, firmware_.size());
     EXPECT_EQ(memcmp(plaintext.data(), firmware_.data(), pt_len), 0);
 
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }
 
 /**
@@ -790,23 +790,23 @@ TEST_F(E2ETest, EcdhEsA128kwStreaming1MB) {
         big_fw[i] = static_cast<uint8_t>(i ^ (i >> 8) ^ (i >> 16));
 
     /* --- OFFBOARD --- */
-    sum2::CoseKey sender_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey sender_key = sumo::CoseKey::FromCoseKeyBytes(
         {ecdh_sender_key, sizeof(ecdh_sender_key)});
 
-    sum2::CoseKey recv_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey recv_key = sumo::CoseKey::FromCoseKeyBytes(
         {ecdh_device_key_private, sizeof(ecdh_device_key_private)});
 
     std::vector<uint8_t> kid = {0x6B, 0x69, 0x64, 0x2D, 0x32};
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(recv_key), kid});
 
-    auto encrypted = sum2::EncryptFirmwareEcdh(big_fw, sender_key, recipients);
-    auto digest_vec = sum2::Sha256(big_fw);
+    auto encrypted = sumo::EncryptFirmwareEcdh(big_fw, sender_key, recipients);
+    auto digest_vec = sumo::Sha256(big_fw);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {hmac256_cose_key, sizeof(hmac256_cose_key)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(200)
         .SetVendorId(test_vendor)
@@ -817,19 +817,19 @@ TEST_F(E2ETest, EcdhEsA128kwStreaming1MB) {
         .Build(signing_key);
 
     /* --- ONBOARD --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, test_vendor.bytes, 16);
     memcpy(device_id.class_id, test_class.bytes, 16);
 
-    sum2_validator_t *validator = sum2_validator_create(
+    sumo_validator_t *validator = sumo_validator_create(
         hmac256_cose_key, sizeof(hmac256_cose_key), &device_id);
     ASSERT_NE(validator, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        validator, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        validator, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
 
-    sum2_decryptor_t *decryptor = sum2_decryptor_create(
+    sumo_decryptor_t *decryptor = sumo_decryptor_create(
         manifest, 0,
         ecdh_device_key_private, sizeof(ecdh_device_key_private));
     ASSERT_NE(decryptor, nullptr);
@@ -845,7 +845,7 @@ TEST_F(E2ETest, EcdhEsA128kwStreaming1MB) {
     for (size_t off = 0; off < encrypted.ciphertext.size(); off += CHUNK) {
         size_t n = std::min(CHUNK, encrypted.ciphertext.size() - off);
         size_t pt_len = sizeof(pt_buf);
-        ASSERT_EQ(sum2_decryptor_update(decryptor,
+        ASSERT_EQ(sumo_decryptor_update(decryptor,
             encrypted.ciphertext.data() + off, n,
             pt_buf, &pt_len), 0);
 
@@ -856,7 +856,7 @@ TEST_F(E2ETest, EcdhEsA128kwStreaming1MB) {
     }
 
     size_t final_len = sizeof(pt_buf);
-    ASSERT_EQ(sum2_decryptor_finalize(decryptor, pt_buf, &final_len), 0);
+    ASSERT_EQ(sumo_decryptor_finalize(decryptor, pt_buf, &final_len), 0);
     if (final_len > 0) {
         EVP_DigestUpdate(hash_ctx, pt_buf, final_len);
         total_decrypted += final_len;
@@ -870,12 +870,12 @@ TEST_F(E2ETest, EcdhEsA128kwStreaming1MB) {
 
     const uint8_t *expected_digest = nullptr;
     size_t expected_digest_len = 0;
-    ASSERT_EQ(sum2_manifest_image_digest(manifest, 0,
-        &expected_digest, &expected_digest_len, nullptr), SUM2_OK);
+    ASSERT_EQ(sumo_manifest_image_digest(manifest, 0,
+        &expected_digest, &expected_digest_len, nullptr), SUMO_OK);
     EXPECT_EQ(memcmp(computed_digest, expected_digest, 32), 0)
         << "ECDH-ES+A128KW streaming decrypt digest mismatch";
 
-    sum2_decryptor_free(decryptor);
-    sum2_manifest_free(manifest);
-    sum2_validator_free(validator);
+    sumo_decryptor_free(decryptor);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(validator);
 }

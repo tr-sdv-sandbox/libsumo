@@ -11,8 +11,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/validator.h"
-#include "sum2_internal.h"
+#include "sumo/validator.h"
+#include "sumo_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -20,11 +20,11 @@
 /* libcsuit headers */
 #include "csuit/csuit.h"
 
-#define SUM2_MAX_REVOKED_KIDS 8
-#define SUM2_MAX_KID_LEN 32
+#define SUMO_MAX_REVOKED_KIDS 8
+#define SUMO_MAX_KID_LEN 32
 
-struct sum2_validator {
-    sum2_device_id_t device_id;
+struct sumo_validator {
+    sumo_device_id_t device_id;
 
     /* Trust anchor store — up to SUIT_MAX_KEY_NUM root keys */
     suit_key_t trust_anchors[SUIT_MAX_KEY_NUM];
@@ -32,9 +32,9 @@ struct sum2_validator {
 
     /* Key revocation list — kids of revoked signing keys */
     struct {
-        uint8_t kid[SUM2_MAX_KID_LEN];
+        uint8_t kid[SUMO_MAX_KID_LEN];
         size_t len;
-    } revoked_kids[SUM2_MAX_REVOKED_KIDS];
+    } revoked_kids[SUMO_MAX_REVOKED_KIDS];
     size_t num_revoked_kids;
 
     uint64_t min_seq;       /* anti-rollback: must be strictly > */
@@ -46,11 +46,11 @@ struct sum2_validator {
     size_t device_key_len;
 };
 
-/* sum2_manifest is defined in sum2_internal.h */
+/* sumo_manifest is defined in sumo_internal.h */
 
 /* --- Forward declarations --- */
 static const suit_parameters_t *find_shared_param(
-    const sum2_manifest_t *m, size_t component_index, int64_t param_label);
+    const sumo_manifest_t *m, size_t component_index, int64_t param_label);
 
 /* --- Internal helpers --- */
 
@@ -64,7 +64,7 @@ static suit_err_t init_key(const uint8_t *key_data, size_t key_len,
     return suit_set_suit_key_from_cose_key(cose_key, out);
 }
 
-static int is_kid_revoked(const sum2_validator_t *v,
+static int is_kid_revoked(const sumo_validator_t *v,
                            const uint8_t *kid, size_t kid_len)
 {
     for (size_t i = 0; i < v->num_revoked_kids; i++) {
@@ -77,7 +77,7 @@ static int is_kid_revoked(const sum2_validator_t *v,
 }
 
 /* Check if any mechanism used during verification has a revoked kid */
-static int any_mechanism_revoked(const sum2_validator_t *v,
+static int any_mechanism_revoked(const sumo_validator_t *v,
                                   const suit_mechanism_t mechanisms[])
 {
     if (v->num_revoked_kids == 0) return 0;
@@ -96,11 +96,11 @@ static int any_mechanism_revoked(const sum2_validator_t *v,
 
 /* --- Public API --- */
 
-sum2_validator_t *sum2_validator_create(
+sumo_validator_t *sumo_validator_create(
     const uint8_t *trust_anchor_key, size_t ta_len,
-    const sum2_device_id_t *device_id)
+    const sumo_device_id_t *device_id)
 {
-    sum2_validator_t *v = calloc(1, sizeof(*v));
+    sumo_validator_t *v = calloc(1, sizeof(*v));
     if (!v) return NULL;
 
     if (device_id) {
@@ -117,92 +117,92 @@ sum2_validator_t *sum2_validator_create(
     return v;
 }
 
-int sum2_validator_add_trust_anchor(
-    sum2_validator_t *v,
+int sumo_validator_add_trust_anchor(
+    sumo_validator_t *v,
     const uint8_t *key, size_t key_len)
 {
-    if (!v || !key) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!v || !key) return SUMO_ERR_INVALID_ENVELOPE;
     if (v->num_trust_anchors >= SUIT_MAX_KEY_NUM)
-        return SUM2_ERR_OUT_OF_MEMORY;
+        return SUMO_ERR_OUT_OF_MEMORY;
 
     suit_err_t err = init_key(key, key_len,
                               &v->trust_anchors[v->num_trust_anchors]);
-    if (err != SUIT_SUCCESS) return SUM2_ERR_AUTH_FAILED;
+    if (err != SUIT_SUCCESS) return SUMO_ERR_AUTH_FAILED;
     v->num_trust_anchors++;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validator_revoke_kid(
-    sum2_validator_t *v,
+int sumo_validator_revoke_kid(
+    sumo_validator_t *v,
     const uint8_t *kid, size_t kid_len)
 {
-    if (!v || !kid || kid_len == 0) return SUM2_ERR_INVALID_ENVELOPE;
-    if (kid_len > SUM2_MAX_KID_LEN) return SUM2_ERR_INVALID_ENVELOPE;
-    if (v->num_revoked_kids >= SUM2_MAX_REVOKED_KIDS)
-        return SUM2_ERR_OUT_OF_MEMORY;
+    if (!v || !kid || kid_len == 0) return SUMO_ERR_INVALID_ENVELOPE;
+    if (kid_len > SUMO_MAX_KID_LEN) return SUMO_ERR_INVALID_ENVELOPE;
+    if (v->num_revoked_kids >= SUMO_MAX_REVOKED_KIDS)
+        return SUMO_ERR_OUT_OF_MEMORY;
 
     memcpy(v->revoked_kids[v->num_revoked_kids].kid, kid, kid_len);
     v->revoked_kids[v->num_revoked_kids].len = kid_len;
     v->num_revoked_kids++;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validator_add_device_key(
-    sum2_validator_t *v,
+int sumo_validator_add_device_key(
+    sumo_validator_t *v,
     const uint8_t *key, size_t key_len,
     const uint8_t *kid, size_t kid_len)
 {
-    if (!v || !key || key_len == 0) return SUM2_ERR_INVALID_ENVELOPE;
-    if (key_len > sizeof(v->device_key)) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!v || !key || key_len == 0) return SUMO_ERR_INVALID_ENVELOPE;
+    if (key_len > sizeof(v->device_key)) return SUMO_ERR_INVALID_ENVELOPE;
     (void)kid; (void)kid_len;
 
     memcpy(v->device_key, key, key_len);
     v->device_key_len = key_len;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validator_get_device_key(
-    const sum2_validator_t *v,
+int sumo_validator_get_device_key(
+    const sumo_validator_t *v,
     const uint8_t **key_out, size_t *key_len_out)
 {
-    if (!v || !key_out || !key_len_out) return SUM2_ERR_INVALID_ENVELOPE;
-    if (v->device_key_len == 0) return SUM2_ERR_UNSUPPORTED;
+    if (!v || !key_out || !key_len_out) return SUMO_ERR_INVALID_ENVELOPE;
+    if (v->device_key_len == 0) return SUMO_ERR_UNSUPPORTED;
     *key_out = v->device_key;
     *key_len_out = v->device_key_len;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validator_set_min_sequence(
-    sum2_validator_t *v,
+int sumo_validator_set_min_sequence(
+    sumo_validator_t *v,
     const uint8_t *component_id, size_t cid_len,
     uint64_t min_seq)
 {
-    if (!v) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!v) return SUMO_ERR_INVALID_ENVELOPE;
     (void)component_id; (void)cid_len;
     v->min_seq = min_seq;
     v->has_min_seq = 1;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validator_set_reject_before(
-    sum2_validator_t *v,
+int sumo_validator_set_reject_before(
+    sumo_validator_t *v,
     int64_t unix_timestamp)
 {
-    if (!v) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!v) return SUMO_ERR_INVALID_ENVELOPE;
     v->reject_before = unix_timestamp;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_validate_envelope(
-    sum2_validator_t *v,
+int sumo_validate_envelope(
+    sumo_validator_t *v,
     const uint8_t *envelope, size_t envelope_len,
     int64_t trusted_time,
-    sum2_manifest_t **manifest_out)
+    sumo_manifest_t **manifest_out)
 {
-    if (!v || !envelope || !manifest_out) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!v || !envelope || !manifest_out) return SUMO_ERR_INVALID_ENVELOPE;
 
-    sum2_manifest_t *m = calloc(1, sizeof(*m));
-    if (!m) return SUM2_ERR_OUT_OF_MEMORY;
+    sumo_manifest_t *m = calloc(1, sizeof(*m));
+    if (!m) return SUMO_ERR_OUT_OF_MEMORY;
 
     /*
      * Populate mechanisms array from all registered trust anchors.
@@ -226,36 +226,36 @@ int sum2_validate_envelope(
     if (err != SUIT_SUCCESS) {
         free(m);
         if (err == SUIT_ERR_FAILED_TO_VERIFY)
-            return SUM2_ERR_AUTH_FAILED;
+            return SUMO_ERR_AUTH_FAILED;
         if (err == SUIT_ERR_FAILED_TO_VERIFY_DELEGATION)
-            return SUM2_ERR_DELEGATION_FAILED;
-        return SUM2_ERR_INVALID_ENVELOPE;
+            return SUMO_ERR_DELEGATION_FAILED;
+        return SUMO_ERR_INVALID_ENVELOPE;
     }
 
     /* Check if any key in the verification chain is revoked */
     if (any_mechanism_revoked(v, m->mechanisms)) {
         free(m);
-        return SUM2_ERR_REVOKED;
+        return SUMO_ERR_REVOKED;
     }
 
     /* Anti-rollback: strictly greater than last accepted */
     if (v->has_min_seq && m->envelope.manifest.sequence_number <= v->min_seq) {
         free(m);
-        return SUM2_ERR_ROLLBACK_REJECTED;
+        return SUMO_ERR_ROLLBACK_REJECTED;
     }
 
     /* Timestamp-based revocation */
     if (v->reject_before > 0 && trusted_time > 0 &&
         trusted_time < v->reject_before) {
         free(m);
-        return SUM2_ERR_REVOKED;
+        return SUMO_ERR_REVOKED;
     }
 
     *manifest_out = m;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-void sum2_validator_free(sum2_validator_t *v)
+void sumo_validator_free(sumo_validator_t *v)
 {
     if (!v) return;
     for (size_t i = 0; i < v->num_trust_anchors; i++) {
@@ -266,67 +266,67 @@ void sum2_validator_free(sum2_validator_t *v)
 
 /* --- Manifest accessors --- */
 
-uint64_t sum2_manifest_sequence_number(const sum2_manifest_t *m)
+uint64_t sumo_manifest_sequence_number(const sumo_manifest_t *m)
 {
     if (!m) return 0;
     return m->envelope.manifest.sequence_number;
 }
 
-size_t sum2_manifest_component_count(const sum2_manifest_t *m)
+size_t sumo_manifest_component_count(const sumo_manifest_t *m)
 {
     if (!m) return 0;
     return m->envelope.manifest.common.components_len;
 }
 
-size_t sum2_manifest_dependency_count(const sum2_manifest_t *m)
+size_t sumo_manifest_dependency_count(const sumo_manifest_t *m)
 {
     if (!m) return 0;
     return m->envelope.manifest.common.dependencies.len;
 }
 
-int sum2_manifest_is_campaign(const sum2_manifest_t *m)
+int sumo_manifest_is_campaign(const sumo_manifest_t *m)
 {
-    return sum2_manifest_dependency_count(m) > 0;
+    return sumo_manifest_dependency_count(m) > 0;
 }
 
-int sum2_manifest_component_id(
-    const sum2_manifest_t *m, size_t index,
+int sumo_manifest_component_id(
+    const sumo_manifest_t *m, size_t index,
     const uint8_t **out, size_t *out_len)
 {
-    if (!m || !out || !out_len) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!m || !out || !out_len) return SUMO_ERR_INVALID_ENVELOPE;
     if (index >= m->envelope.manifest.common.components_len)
-        return SUM2_ERR_INVALID_ENVELOPE;
+        return SUMO_ERR_INVALID_ENVELOPE;
 
     *out = m->envelope.manifest.common.components[index].encoded_component.ptr;
     *out_len = m->envelope.manifest.common.components[index].encoded_component.len;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_manifest_image_size(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_image_size(
+    const sumo_manifest_t *m, size_t component_index,
     uint64_t *size_out)
 {
-    if (!m || !size_out) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!m || !size_out) return SUMO_ERR_INVALID_ENVELOPE;
     const suit_parameters_t *p =
         find_shared_param(m, component_index, SUIT_PARAMETER_IMAGE_SIZE);
-    if (!p) return SUM2_ERR_UNSUPPORTED;
+    if (!p) return SUMO_ERR_UNSUPPORTED;
     *size_out = p->value.uint64;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_manifest_image_digest(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_image_digest(
+    const sumo_manifest_t *m, size_t component_index,
     const uint8_t **digest_out, size_t *digest_len_out,
     int *algorithm_out)
 {
-    if (!m || !digest_out || !digest_len_out) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!m || !digest_out || !digest_len_out) return SUMO_ERR_INVALID_ENVELOPE;
     const suit_parameters_t *p =
         find_shared_param(m, component_index, SUIT_PARAMETER_IMAGE_DIGEST);
-    if (!p) return SUM2_ERR_UNSUPPORTED;
+    if (!p) return SUMO_ERR_UNSUPPORTED;
     *digest_out = p->value.digest.bytes.ptr;
     *digest_len_out = p->value.digest.bytes.len;
     if (algorithm_out) *algorithm_out = p->value.digest.algorithm_id;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
 /* --- Shared-sequence parameter helpers --- */
@@ -338,7 +338,7 @@ int sum2_manifest_image_digest(
  * each carrying a params_list with an index and param entries.
  */
 static const suit_parameters_t *find_shared_param(
-    const sum2_manifest_t *m, size_t component_index, int64_t param_label)
+    const sumo_manifest_t *m, size_t component_index, int64_t param_label)
 {
     const suit_command_sequence_t *seq = &m->envelope.manifest.common.shared_seq;
     for (size_t i = 0; i < seq->len; i++) {
@@ -361,53 +361,53 @@ static const suit_parameters_t *find_shared_param(
 
 /* Extract a 16-byte UUID parameter (vendor/class/device ID) */
 static int extract_uuid_param(
-    const sum2_manifest_t *m, size_t component_index,
+    const sumo_manifest_t *m, size_t component_index,
     int64_t param_label, uint8_t out[16])
 {
-    if (!m || !out) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!m || !out) return SUMO_ERR_INVALID_ENVELOPE;
     const suit_parameters_t *p = find_shared_param(m, component_index, param_label);
     if (!p || !p->value.string.ptr || p->value.string.len != 16)
-        return SUM2_ERR_UNSUPPORTED;
+        return SUMO_ERR_UNSUPPORTED;
     memcpy(out, p->value.string.ptr, 16);
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-int sum2_manifest_vendor_id(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_vendor_id(
+    const sumo_manifest_t *m, size_t component_index,
     uint8_t out[16])
 {
     return extract_uuid_param(m, component_index,
                               SUIT_PARAMETER_VENDOR_IDENTIFIER, out);
 }
 
-int sum2_manifest_class_id(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_class_id(
+    const sumo_manifest_t *m, size_t component_index,
     uint8_t out[16])
 {
     return extract_uuid_param(m, component_index,
                               SUIT_PARAMETER_CLASS_IDENTIFIER, out);
 }
 
-int sum2_manifest_device_id(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_device_id(
+    const sumo_manifest_t *m, size_t component_index,
     uint8_t out[16])
 {
     return extract_uuid_param(m, component_index,
                               SUIT_PARAMETER_DEVICE_IDENTIFIER, out);
 }
 
-int sum2_manifest_version(
-    const sum2_manifest_t *m, size_t component_index,
-    sum2_version_cmp_t *cmp_out,
+int sumo_manifest_version(
+    const sumo_manifest_t *m, size_t component_index,
+    sumo_version_cmp_t *cmp_out,
     int64_t *parts_out, size_t *parts_len)
 {
     if (!m || !cmp_out || !parts_out || !parts_len)
-        return SUM2_ERR_INVALID_ENVELOPE;
+        return SUMO_ERR_INVALID_ENVELOPE;
 
     const suit_parameters_t *p = find_shared_param(
         m, component_index, SUIT_PARAMETER_VERSION);
     if (!p || !p->value.string.ptr || p->value.string.len == 0)
-        return SUM2_ERR_UNSUPPORTED;
+        return SUMO_ERR_UNSUPPORTED;
 
     /* The version parameter is CBOR-encoded suit_version_match_t.
      * Decode it using libcsuit. */
@@ -415,21 +415,21 @@ int sum2_manifest_version(
     memset(&vm, 0, sizeof(vm));
     suit_err_t err = suit_decode_version_match(p->value.string, &vm);
     if (err != SUIT_SUCCESS)
-        return SUM2_ERR_INVALID_ENVELOPE;
+        return SUMO_ERR_INVALID_ENVELOPE;
 
-    *cmp_out = (sum2_version_cmp_t)vm.type;
+    *cmp_out = (sumo_version_cmp_t)vm.type;
     size_t count = vm.value.len;
     if (count > *parts_len) count = *parts_len;
     for (size_t i = 0; i < count; i++)
         parts_out[i] = vm.value.int64[i];
     *parts_len = count;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
 /* --- Text section accessors --- */
 
 static const suit_text_component_t *find_text_component(
-    const sum2_manifest_t *m, size_t component_index)
+    const sumo_manifest_t *m, size_t component_index)
 {
     const suit_text_map_t *tm = &m->envelope.manifest.sev_man_mem.text;
     if (tm->text_lmaps_len == 0)
@@ -445,60 +445,60 @@ static const suit_text_component_t *find_text_component(
 
 /* Use a macro since C doesn't have member pointers */
 #define EXTRACT_TEXT_FIELD(m, ci, field_name, out, out_len) do { \
-    if (!(m) || !(out) || !(out_len)) return SUM2_ERR_INVALID_ENVELOPE; \
+    if (!(m) || !(out) || !(out_len)) return SUMO_ERR_INVALID_ENVELOPE; \
     const suit_text_component_t *tc = find_text_component((m), (ci)); \
     if (!tc || !tc->field_name.ptr || tc->field_name.len == 0) \
-        return SUM2_ERR_UNSUPPORTED; \
+        return SUMO_ERR_UNSUPPORTED; \
     *(out) = (const char *)tc->field_name.ptr; \
     *(out_len) = tc->field_name.len; \
-    return SUM2_OK; \
+    return SUMO_OK; \
 } while (0)
 
-int sum2_manifest_text_vendor_name(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_text_vendor_name(
+    const sumo_manifest_t *m, size_t component_index,
     const char **out, size_t *out_len)
 {
     EXTRACT_TEXT_FIELD(m, component_index, vendor_name, out, out_len);
 }
 
-int sum2_manifest_text_model_name(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_text_model_name(
+    const sumo_manifest_t *m, size_t component_index,
     const char **out, size_t *out_len)
 {
     EXTRACT_TEXT_FIELD(m, component_index, model_name, out, out_len);
 }
 
-int sum2_manifest_text_model_info(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_text_model_info(
+    const sumo_manifest_t *m, size_t component_index,
     const char **out, size_t *out_len)
 {
     EXTRACT_TEXT_FIELD(m, component_index, model_info, out, out_len);
 }
 
-int sum2_manifest_text_version(
-    const sum2_manifest_t *m, size_t component_index,
+int sumo_manifest_text_version(
+    const sumo_manifest_t *m, size_t component_index,
     const char **out, size_t *out_len)
 {
     EXTRACT_TEXT_FIELD(m, component_index, component_version, out, out_len);
 }
 
-int sum2_manifest_text_description(
-    const sum2_manifest_t *m,
+int sumo_manifest_text_description(
+    const sumo_manifest_t *m,
     const char **out, size_t *out_len)
 {
-    if (!m || !out || !out_len) return SUM2_ERR_INVALID_ENVELOPE;
+    if (!m || !out || !out_len) return SUMO_ERR_INVALID_ENVELOPE;
     const suit_text_map_t *tm = &m->envelope.manifest.sev_man_mem.text;
     if (tm->text_lmaps_len == 0)
-        return SUM2_ERR_UNSUPPORTED;
+        return SUMO_ERR_UNSUPPORTED;
     const suit_text_lmap_t *lmap = &tm->text_lmaps[0];
     if (!lmap->manifest_description.ptr || lmap->manifest_description.len == 0)
-        return SUM2_ERR_UNSUPPORTED;
+        return SUMO_ERR_UNSUPPORTED;
     *out = (const char *)lmap->manifest_description.ptr;
     *out_len = lmap->manifest_description.len;
-    return SUM2_OK;
+    return SUMO_OK;
 }
 
-void sum2_manifest_free(sum2_manifest_t *m)
+void sumo_manifest_free(sumo_manifest_t *m)
 {
     free(m);
 }

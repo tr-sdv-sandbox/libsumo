@@ -7,16 +7,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_ENCRYPTOR_H
-#define SUM2_ENCRYPTOR_H
+#ifndef SUMO_ENCRYPTOR_H
+#define SUMO_ENCRYPTOR_H
 
 #include <cstdint>
 #include <span>
 #include <vector>
 
-#include "sum2/image_builder.h"  // CoseKey, EncryptedPayload
+#include "sumo/image_builder.h"  // CoseKey, EncryptedPayload
 
-namespace sum2 {
+namespace sumo {
 
 /**
  * A device recipient for per-device encryption.
@@ -82,6 +82,6 @@ std::vector<uint8_t> CompressFirmware(
  */
 std::vector<uint8_t> Sha256(std::span<const uint8_t> data);
 
-} // namespace sum2
+} // namespace sumo
 
-#endif /* SUM2_ENCRYPTOR_H */
+#endif /* SUMO_ENCRYPTOR_H */

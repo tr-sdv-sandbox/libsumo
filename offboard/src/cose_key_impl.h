@@ -4,14 +4,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_COSE_KEY_IMPL_H
-#define SUM2_COSE_KEY_IMPL_H
+#ifndef SUMO_COSE_KEY_IMPL_H
+#define SUMO_COSE_KEY_IMPL_H
 
-#include "sum2/image_builder.h"
+#include "sumo/image_builder.h"
 
 #include <openssl/evp.h>
 
-namespace sum2 {
+namespace sumo {
 
 struct CoseKey::Impl {
     std::vector<uint8_t> key_bytes;        // COSE_Key CBOR (may include private)
@@ -25,6 +25,6 @@ struct CoseKey::Impl {
     }
 };
 
-} // namespace sum2
+} // namespace sumo
 
-#endif /* SUM2_COSE_KEY_IMPL_H */
+#endif /* SUMO_COSE_KEY_IMPL_H */

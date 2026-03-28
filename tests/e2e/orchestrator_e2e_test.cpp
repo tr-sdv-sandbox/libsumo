@@ -12,15 +12,15 @@
 
 #include <openssl/evp.h>
 
-#include "sum2/image_builder.h"
-#include "sum2/campaign_builder.h"
-#include "sum2/encryptor.h"
-#include "sum2/keygen.h"
-#include "sum2/validator.h"
-#include "sum2/decryptor.h"
-#include "sum2/decompressor.h"
-#include "sum2/orchestrator.h"
-#include "sum2/policy.h"
+#include "sumo/image_builder.h"
+#include "sumo/campaign_builder.h"
+#include "sumo/encryptor.h"
+#include "sumo/keygen.h"
+#include "sumo/validator.h"
+#include "sumo/decryptor.h"
+#include "sumo/decompressor.h"
+#include "sumo/orchestrator.h"
+#include "sumo/policy.h"
 
 #include "e2e_test_helpers.h"
 
@@ -50,17 +50,17 @@ protected:
  * Verify the write callback receives correct decrypted firmware.
  */
 TEST_F(OrchestratorImageTest, ProcessImageEncryptedA128KW) {
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, image_.envelope.data(), image_.envelope.size(), 0, &manifest),
-        SUM2_OK);
+        SUMO_OK);
 
     auto ops = platform_.ops();
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK) << "process_image failed: " << rc;
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK) << "process_image failed: " << rc;
 
     /* Verify firmware was written correctly */
     EXPECT_FALSE(platform_.written.empty())
@@ -82,8 +82,8 @@ TEST_F(OrchestratorImageTest, ProcessImageEncryptedA128KW) {
     EXPECT_FALSE(platform_.persisted_seqs.empty())
         << "persist_sequence should have been called";
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
@@ -93,21 +93,21 @@ TEST_F(OrchestratorImageTest, ProcessImageEncryptedECDH) {
     /* Build ECDH-encrypted image */
     std::vector<uint8_t> fw(4096, 0xCC);
 
-    sum2::CoseKey sender = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey sender = sumo::CoseKey::FromCoseKeyBytes(
         {kEcdhSenderKey, sizeof(kEcdhSenderKey)});
-    sum2::CoseKey recv = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey recv = sumo::CoseKey::FromCoseKeyBytes(
         {kEcdhDeviceKeyPrivate, sizeof(kEcdhDeviceKeyPrivate)});
 
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(recv), {0x6B, 0x69, 0x64}});
 
-    auto encrypted = sum2::EncryptFirmwareEcdh(fw, sender, recipients);
-    auto digest = sum2::Sha256(fw);
+    auto encrypted = sumo::EncryptFirmwareEcdh(fw, sender, recipients);
+    auto digest = sumo::Sha256(fw);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto envelope = sum2::ImageManifestBuilder()
+    auto envelope = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(20)
         .SetVendorId(kTestVendor)
@@ -122,34 +122,34 @@ TEST_F(OrchestratorImageTest, ProcessImageEncryptedECDH) {
     plat.fetch_store["https://fw.example.com/ecu-a-ecdh.enc"] = encrypted.ciphertext;
 
     /* Validator with ECDH device key */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, kTestVendor.bytes, 16);
     memcpy(device_id.class_id, kTestClass.bytes, 16);
 
-    sum2_validator_t *v = sum2_validator_create(
+    sumo_validator_t *v = sumo_validator_create(
         kHmacCoseKey, sizeof(kHmacCoseKey), &device_id);
     ASSERT_NE(v, nullptr);
 
     /* Register ECDH device private key on validator */
-    ASSERT_EQ(sum2_validator_add_device_key(v,
+    ASSERT_EQ(sumo_validator_add_device_key(v,
         kEcdhDeviceKeyPrivate, sizeof(kEcdhDeviceKeyPrivate),
-        nullptr, 0), SUM2_OK);
+        nullptr, 0), SUMO_OK);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, envelope.data(), envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, envelope.data(), envelope.size(), 0, &manifest), SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK) << "ECDH process_image failed: " << rc;
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK) << "ECDH process_image failed: " << rc;
 
     /* Verify decrypted output */
     size_t total = 0;
     for (auto &[key, data] : plat.written) total += data.size();
     EXPECT_EQ(total, fw.size());
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
@@ -167,24 +167,24 @@ TEST_F(OrchestratorImageTest, ProcessImageWithCompression) {
     FakePlatformOps plat;
     plat.fetch_store[img.payload_uri] = img.ciphertext;
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, img.envelope.data(), img.envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, img.envelope.data(), img.envelope.size(), 0, &manifest), SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK) << "Compressed image processing failed: " << rc;
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK) << "Compressed image processing failed: " << rc;
 
     /* Written data should be decompressed firmware */
     size_t total = 0;
     for (auto &[key, data] : plat.written) total += data.size();
     EXPECT_EQ(total, fw.size());
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
@@ -202,16 +202,16 @@ TEST_F(OrchestratorImageTest, ProcessImageStreaming1MB) {
     FakePlatformOps plat;
     plat.fetch_store[img.payload_uri] = img.ciphertext;
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, img.envelope.data(), img.envelope.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, img.envelope.data(), img.envelope.size(), 0, &manifest), SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK);
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK);
 
     /* Should have called write multiple times (streaming, not all at once) */
     EXPECT_GT(plat.write_call_count, 1)
@@ -221,75 +221,75 @@ TEST_F(OrchestratorImageTest, ProcessImageStreaming1MB) {
     for (auto &[key, data] : plat.written) total += data.size();
     EXPECT_EQ(total, FW_SIZE);
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
  * Fetch failure: orchestrator should propagate error, no write/persist.
  */
 TEST_F(OrchestratorImageTest, ProcessImageFetchFails) {
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, image_.envelope.data(), image_.envelope.size(), 0, &manifest),
-        SUM2_OK);
+        SUMO_OK);
 
     /* Empty platform — fetch will find nothing */
     FakePlatformOps empty_plat;
     auto ops = empty_plat.ops();
 
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_NE(rc, SUM2_OK) << "Should fail when fetch returns error";
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_NE(rc, SUMO_OK) << "Should fail when fetch returns error";
 
     EXPECT_TRUE(empty_plat.written.empty())
         << "No writes should occur on fetch failure";
     EXPECT_TRUE(empty_plat.persisted_seqs.empty())
         << "No sequence persist on fetch failure";
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
  * Write failure: orchestrator should stop and NOT persist sequence.
  */
 TEST_F(OrchestratorImageTest, ProcessImageWriteFails) {
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, image_.envelope.data(), image_.envelope.size(), 0, &manifest),
-        SUM2_OK);
+        SUMO_OK);
 
     /* Fail on 3rd write call */
     platform_.write_fail_on = 3;
     auto ops = platform_.ops();
 
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_NE(rc, SUM2_OK) << "Should fail when write fails";
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_NE(rc, SUMO_OK) << "Should fail when write fails";
 
     EXPECT_TRUE(platform_.persisted_seqs.empty())
         << "Should NOT persist sequence when write fails (atomic semantics)";
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
  * Tampered ciphertext: GCM tag or digest check should catch it.
  */
 TEST_F(OrchestratorImageTest, ProcessImageTamperedPayload) {
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, image_.envelope.data(), image_.envelope.size(), 0, &manifest),
-        SUM2_OK);
+        SUMO_OK);
 
     /* Tamper the ciphertext */
     auto tampered = image_.ciphertext;
@@ -299,11 +299,11 @@ TEST_F(OrchestratorImageTest, ProcessImageTamperedPayload) {
     plat.fetch_store[image_.payload_uri] = tampered;
     auto ops = plat.ops();
 
-    int rc = sum2_process_image(v, manifest, &ops);
-    EXPECT_NE(rc, SUM2_OK) << "Should detect tampered ciphertext";
+    int rc = sumo_process_image(v, manifest, &ops);
+    EXPECT_NE(rc, SUMO_OK) << "Should detect tampered ciphertext";
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /* ===== Campaign Processing Tests ===== */
@@ -324,10 +324,10 @@ protected:
             "https://fw.example.com/ecu-b-v10.enc");
 
         /* Build campaign manifest */
-        sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+        sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
             {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-        campaign_envelope_ = sum2::CampaignBuilder()
+        campaign_envelope_ = sumo::CampaignBuilder()
             .SetSequenceNumber(50)
             .SetVendorId(kTestVendor)
             .SetClassId(kTestClass)
@@ -350,17 +350,17 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignTwoImages) {
     plat.fetch_store[ecu_a_.payload_uri] = ecu_a_.ciphertext;
     plat.fetch_store[ecu_b_.payload_uri] = ecu_b_.ciphertext;
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *campaign = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *campaign = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, campaign_envelope_.data(), campaign_envelope_.size(), 0, &campaign),
-        SUM2_OK);
+        SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_campaign(v, campaign, &ops);
-    EXPECT_EQ(rc, SUM2_OK) << "Campaign processing failed: " << rc;
+    int rc = sumo_process_campaign(v, campaign, &ops);
+    EXPECT_EQ(rc, SUMO_OK) << "Campaign processing failed: " << rc;
 
     /* Both components should have received firmware */
     size_t total = 0;
@@ -371,18 +371,18 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignTwoImages) {
     EXPECT_GE(plat.persisted_seqs.size(), 2u)
         << "Both component sequences should be persisted";
 
-    sum2_manifest_free(campaign);
-    sum2_validator_free(v);
+    sumo_manifest_free(campaign);
+    sumo_validator_free(v);
 }
 
 /**
  * Campaign with integrated L2 manifest — no L2 envelope fetch needed.
  */
 TEST_F(OrchestratorCampaignTest, ProcessCampaignIntegrated) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(51)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -393,23 +393,23 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignIntegrated) {
     /* Only firmware payload — L2 envelope is integrated */
     plat.fetch_store[ecu_a_.payload_uri] = ecu_a_.ciphertext;
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, campaign.data(), campaign.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, campaign.data(), campaign.size(), 0, &manifest), SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_campaign(v, manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK);
+    int rc = sumo_process_campaign(v, manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK);
 
     size_t total = 0;
     for (auto &[key, data] : plat.written) total += data.size();
     EXPECT_EQ(total, ecu_a_.plaintext.size());
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
@@ -422,20 +422,20 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignL2FetchFails) {
     plat.fetch_store[ecu_a_.payload_uri] = ecu_a_.ciphertext;
     /* ecu-b.suit missing — will cause fetch failure */
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *campaign = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *campaign = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, campaign_envelope_.data(), campaign_envelope_.size(), 0, &campaign),
-        SUM2_OK);
+        SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_campaign(v, campaign, &ops);
-    EXPECT_NE(rc, SUM2_OK) << "Should fail when L2 fetch fails";
+    int rc = sumo_process_campaign(v, campaign, &ops);
+    EXPECT_NE(rc, SUMO_OK) << "Should fail when L2 fetch fails";
 
-    sum2_manifest_free(campaign);
-    sum2_validator_free(v);
+    sumo_manifest_free(campaign);
+    sumo_validator_free(v);
 }
 
 /**
@@ -453,20 +453,20 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignL2AuthFails) {
     plat.fetch_store[ecu_a_.payload_uri] = ecu_a_.ciphertext;
     plat.fetch_store[ecu_b_.payload_uri] = ecu_b_.ciphertext;
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *campaign = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *campaign = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
         v, campaign_envelope_.data(), campaign_envelope_.size(), 0, &campaign),
-        SUM2_OK);
+        SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_campaign(v, campaign, &ops);
-    EXPECT_NE(rc, SUM2_OK) << "Should detect tampered L2 envelope";
+    int rc = sumo_process_campaign(v, campaign, &ops);
+    EXPECT_NE(rc, SUMO_OK) << "Should detect tampered L2 envelope";
 
-    sum2_manifest_free(campaign);
-    sum2_validator_free(v);
+    sumo_manifest_free(campaign);
+    sumo_validator_free(v);
 }
 
 /* ===== Full Pipeline Test ===== */
@@ -477,11 +477,11 @@ TEST_F(OrchestratorCampaignTest, ProcessCampaignL2AuthFails) {
  */
 TEST(FullPipelineTest, KeyGenThroughPolicy) {
     /* --- OFFBOARD: Generate keys --- */
-    sum2::CoseKey signing_key = sum2::GenerateSigningKey(sum2::ES256);
+    sumo::CoseKey signing_key = sumo::GenerateSigningKey(sumo::ES256);
     auto pub_bytes = signing_key.PublicKeyBytes();
     ASSERT_FALSE(pub_bytes.empty());
 
-    sum2::CoseKey device_key = sum2::GenerateDeviceKey(sum2::ES256);
+    sumo::CoseKey device_key = sumo::GenerateDeviceKey(sumo::ES256);
     auto device_pub = device_key.PublicKeyBytes();
     ASSERT_FALSE(device_pub.empty());
 
@@ -490,17 +490,17 @@ TEST(FullPipelineTest, KeyGenThroughPolicy) {
     std::vector<uint8_t> fw_b(8192, 0xBB);
 
     /* Encrypt with generated device key */
-    sum2::CoseKey recv_pub = sum2::CoseKey::FromCoseKeyBytes(device_pub);
-    sum2::CoseKey sender = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey recv_pub = sumo::CoseKey::FromCoseKeyBytes(device_pub);
+    sumo::CoseKey sender = sumo::CoseKey::FromCoseKeyBytes(
         {kEcdhSenderKey, sizeof(kEcdhSenderKey)});
 
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(recv_pub), {0x01}});
 
-    auto enc_a = sum2::EncryptFirmwareEcdh(fw_a, sender, recipients);
-    auto digest_a = sum2::Sha256(fw_a);
+    auto enc_a = sumo::EncryptFirmwareEcdh(fw_a, sender, recipients);
+    auto digest_a = sumo::Sha256(fw_a);
 
-    auto env_a = sum2::ImageManifestBuilder()
+    auto env_a = sumo::ImageManifestBuilder()
         .SetComponentId({"ecu-a", "firmware"})
         .SetSequenceNumber(10)
         .SetVendorId(kTestVendor)
@@ -511,7 +511,7 @@ TEST(FullPipelineTest, KeyGenThroughPolicy) {
         .Build(signing_key);
 
     /* --- OFFBOARD: Build L1 campaign --- */
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(50)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -520,66 +520,66 @@ TEST(FullPipelineTest, KeyGenThroughPolicy) {
     ASSERT_FALSE(campaign.empty());
 
     /* --- ONBOARD: Setup --- */
-    sum2_device_id_t device_id = {};
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, kTestVendor.bytes, 16);
     memcpy(device_id.class_id, kTestClass.bytes, 16);
 
-    sum2_validator_t *v = sum2_validator_create(
+    sumo_validator_t *v = sumo_validator_create(
         pub_bytes.data(), pub_bytes.size(), &device_id);
     ASSERT_NE(v, nullptr);
 
     /* Register device key for decryption */
-    auto full_device_key = sum2::SerializeKey(device_key, true);
-    ASSERT_EQ(sum2_validator_add_device_key(v,
+    auto full_device_key = sumo::SerializeKey(device_key, true);
+    ASSERT_EQ(sumo_validator_add_device_key(v,
         full_device_key.data(), full_device_key.size(),
-        nullptr, 0), SUM2_OK);
+        nullptr, 0), SUMO_OK);
 
     /* Load policy from empty storage (no rollback constraints) */
     FakeStorageOps storage;
     auto storage_ops = storage.ops();
-    sum2_policy_load(v, &storage_ops);
+    sumo_policy_load(v, &storage_ops);
 
     /* --- ONBOARD: Process campaign --- */
     FakePlatformOps plat;
     plat.fetch_store["https://fw.example.com/ecu-a.suit"] = env_a;
     plat.fetch_store["https://fw.example.com/ecu-a.enc"] = enc_a.ciphertext;
 
-    sum2_manifest_t *camp_manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, campaign.data(), campaign.size(), 0, &camp_manifest), SUM2_OK);
+    sumo_manifest_t *camp_manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, campaign.data(), campaign.size(), 0, &camp_manifest), SUMO_OK);
 
     auto ops = plat.ops();
-    int rc = sum2_process_campaign(v, camp_manifest, &ops);
-    EXPECT_EQ(rc, SUM2_OK) << "Full pipeline campaign processing failed";
+    int rc = sumo_process_campaign(v, camp_manifest, &ops);
+    EXPECT_EQ(rc, SUMO_OK) << "Full pipeline campaign processing failed";
 
     /* Save policy after successful update */
-    rc = sum2_policy_save(camp_manifest, &storage_ops);
-    EXPECT_EQ(rc, SUM2_OK);
+    rc = sumo_policy_save(camp_manifest, &storage_ops);
+    EXPECT_EQ(rc, SUMO_OK);
 
     /* --- Verify rollback protection works --- */
-    sum2_validator_t *v2 = sum2_validator_create(
+    sumo_validator_t *v2 = sumo_validator_create(
         pub_bytes.data(), pub_bytes.size(), &device_id);
     ASSERT_NE(v2, nullptr);
 
     /* Load persisted policy */
-    sum2_policy_load(v2, &storage_ops);
+    sumo_policy_load(v2, &storage_ops);
 
     /* Try to process a campaign with lower sequence (seq=40 < 50) */
-    auto old_campaign = sum2::CampaignBuilder()
+    auto old_campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(40)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
         .AddImage("https://fw.example.com/ecu-a.suit", env_a)
         .Build(signing_key);
 
-    sum2_manifest_t *old_manifest = nullptr;
-    rc = sum2_validate_envelope(
+    sumo_manifest_t *old_manifest = nullptr;
+    rc = sumo_validate_envelope(
         v2, old_campaign.data(), old_campaign.size(), 0, &old_manifest);
-    EXPECT_EQ(rc, SUM2_ERR_ROLLBACK_REJECTED)
+    EXPECT_EQ(rc, SUMO_ERR_ROLLBACK_REJECTED)
         << "Should reject campaign with seq < persisted seq";
     EXPECT_EQ(old_manifest, nullptr);
 
-    sum2_manifest_free(camp_manifest);
-    sum2_validator_free(v);
-    sum2_validator_free(v2);
+    sumo_manifest_free(camp_manifest);
+    sumo_validator_free(v);
+    sumo_validator_free(v2);
 }

@@ -4,7 +4,7 @@
  *
  * Tests both:
  *   - Low-level AES-128-GCM encrypt/decrypt round-trips (OpenSSL EVP)
- *   - Full COSE_Encrypt → CEK unwrap → streaming decrypt via sum2_decryptor
+ *   - Full COSE_Encrypt → CEK unwrap → streaming decrypt via sumo_decryptor
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,15 +14,15 @@
 #include <numeric>
 
 extern "C" {
-#include "sum2/decryptor.h"
-#include "sum2/validator.h"
+#include "sumo/decryptor.h"
+#include "sumo/validator.h"
 
 /*
  * Helper defined in decryptor_test_helper.c — decodes a SUIT envelope
  * with Mac0 authentication (for expAW test vector) and returns an
- * opaque sum2_manifest_t* that the decryptor can use.
+ * opaque sumo_manifest_t* that the decryptor can use.
  */
-sum2_manifest_t *test_decode_mac0_envelope(
+sumo_manifest_t *test_decode_mac0_envelope(
     const uint8_t *envelope, size_t envelope_len,
     const uint8_t *hmac_key, size_t hmac_key_len);
 }
@@ -246,17 +246,17 @@ protected:
     }
 
     void TearDown() override {
-        if (manifest_) sum2_manifest_free(manifest_);
+        if (manifest_) sumo_manifest_free(manifest_);
     }
 
-    sum2_manifest_t *manifest_ = nullptr;
+    sumo_manifest_t *manifest_ = nullptr;
     std::vector<uint8_t> envelope_;
 };
 
 TEST_F(SuitDecryptorTest, DecodeExpAW) {
     if (envelope_.empty()) GTEST_SKIP() << "expAW test file not available";
     ASSERT_NE(manifest_, nullptr) << "Failed to decode expAW envelope";
-    EXPECT_EQ(sum2_manifest_sequence_number(manifest_), 1u);
+    EXPECT_EQ(sumo_manifest_sequence_number(manifest_), 1u);
 }
 
 TEST_F(SuitDecryptorTest, CreateDecryptor) {
@@ -269,12 +269,12 @@ TEST_F(SuitDecryptorTest, CreateDecryptor) {
         0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61
     };
 
-    sum2_decryptor_t *d = sum2_decryptor_create(
+    sumo_decryptor_t *d = sumo_decryptor_create(
         manifest_, 0, kek, sizeof(kek));
     ASSERT_NE(d, nullptr)
         << "Failed to create decryptor — CEK unwrap or COSE_Encrypt parsing failed";
 
-    sum2_decryptor_free(d);
+    sumo_decryptor_free(d);
 }
 
 TEST_F(SuitDecryptorTest, DecryptContent) {
@@ -286,7 +286,7 @@ TEST_F(SuitDecryptorTest, DecryptContent) {
         0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61
     };
 
-    sum2_decryptor_t *d = sum2_decryptor_create(
+    sumo_decryptor_t *d = sumo_decryptor_create(
         manifest_, 0, kek, sizeof(kek));
     ASSERT_NE(d, nullptr);
 
@@ -304,14 +304,14 @@ TEST_F(SuitDecryptorTest, DecryptContent) {
     /* Decrypt in one shot */
     uint8_t pt[64];
     size_t pt_len;
-    int rc = sum2_decryptor_update(d, encrypted_content,
+    int rc = sumo_decryptor_update(d, encrypted_content,
                                     sizeof(encrypted_content),
                                     pt, &pt_len);
     ASSERT_EQ(rc, 0) << "decryptor_update failed";
 
     uint8_t fin_buf[16];
     size_t fin_len;
-    rc = sum2_decryptor_finalize(d, fin_buf, &fin_len);
+    rc = sumo_decryptor_finalize(d, fin_buf, &fin_len);
     ASSERT_EQ(rc, 0) << "decryptor_finalize failed — GCM tag mismatch?";
 
     /* Combine plaintext */
@@ -321,7 +321,7 @@ TEST_F(SuitDecryptorTest, DecryptContent) {
     /* The plaintext should be meaningful firmware content */
     EXPECT_GT(total, 0u);
 
-    sum2_decryptor_free(d);
+    sumo_decryptor_free(d);
 }
 
 TEST_F(SuitDecryptorTest, StreamingChunkedDecrypt) {
@@ -333,7 +333,7 @@ TEST_F(SuitDecryptorTest, StreamingChunkedDecrypt) {
         0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61
     };
 
-    sum2_decryptor_t *d = sum2_decryptor_create(
+    sumo_decryptor_t *d = sumo_decryptor_create(
         manifest_, 0, kek, sizeof(kek));
     ASSERT_NE(d, nullptr);
 
@@ -354,20 +354,20 @@ TEST_F(SuitDecryptorTest, StreamingChunkedDecrypt) {
     for (size_t off = 0; off < sizeof(encrypted_content); off += chunk_size) {
         size_t sz = std::min(chunk_size, sizeof(encrypted_content) - off);
         size_t pt_len;
-        int rc = sum2_decryptor_update(d, encrypted_content + off, sz,
+        int rc = sumo_decryptor_update(d, encrypted_content + off, sz,
                                         pt_buf, &pt_len);
         ASSERT_EQ(rc, 0) << "decryptor_update failed at offset " << off;
         plaintext.insert(plaintext.end(), pt_buf, pt_buf + pt_len);
     }
 
     size_t fin_len;
-    int rc = sum2_decryptor_finalize(d, pt_buf, &fin_len);
+    int rc = sumo_decryptor_finalize(d, pt_buf, &fin_len);
     ASSERT_EQ(rc, 0) << "decryptor_finalize failed";
     plaintext.insert(plaintext.end(), pt_buf, pt_buf + fin_len);
 
     EXPECT_EQ(plaintext.size(), 30u);
 
-    sum2_decryptor_free(d);
+    sumo_decryptor_free(d);
 }
 
 TEST_F(SuitDecryptorTest, WrongKeyFails) {
@@ -380,19 +380,19 @@ TEST_F(SuitDecryptorTest, WrongKeyFails) {
         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
     };
 
-    sum2_decryptor_t *d = sum2_decryptor_create(
+    sumo_decryptor_t *d = sumo_decryptor_create(
         manifest_, 0, wrong_kek, sizeof(wrong_kek));
     /* A128KW unwrap with wrong key should fail */
     EXPECT_EQ(d, nullptr) << "Wrong KEK should fail to unwrap CEK";
-    if (d) sum2_decryptor_free(d);
+    if (d) sumo_decryptor_free(d);
 }
 
 TEST_F(SuitDecryptorTest, NullManifestFails) {
     const uint8_t kek[16] = {0x61};
-    sum2_decryptor_t *d = sum2_decryptor_create(nullptr, 0, kek, 16);
+    sumo_decryptor_t *d = sumo_decryptor_create(nullptr, 0, kek, 16);
     EXPECT_EQ(d, nullptr);
 }
 
 TEST_F(SuitDecryptorTest, FreeNull) {
-    sum2_decryptor_free(nullptr);  /* Should not crash */
+    sumo_decryptor_free(nullptr);  /* Should not crash */
 }

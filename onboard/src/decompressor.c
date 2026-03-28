@@ -7,19 +7,19 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/decompressor.h"
+#include "sumo/decompressor.h"
 
 #include <zstd.h>
 #include <stdlib.h>
 
-struct sum2_decompressor {
+struct sumo_decompressor {
     ZSTD_DStream *dstream;
     int finished;  /* zstd reported end of frame */
 };
 
-sum2_decompressor_t *sum2_decompressor_create(void)
+sumo_decompressor_t *sumo_decompressor_create(void)
 {
-    sum2_decompressor_t *d = calloc(1, sizeof(*d));
+    sumo_decompressor_t *d = calloc(1, sizeof(*d));
     if (!d) return NULL;
 
     d->dstream = ZSTD_createDStream();
@@ -38,8 +38,8 @@ sum2_decompressor_t *sum2_decompressor_create(void)
     return d;
 }
 
-int sum2_decompressor_update(
-    sum2_decompressor_t *d,
+int sumo_decompressor_update(
+    sumo_decompressor_t *d,
     const uint8_t *in, size_t *in_len,
     uint8_t *out, size_t *out_len)
 {
@@ -73,13 +73,13 @@ int sum2_decompressor_update(
     return 0;
 }
 
-int sum2_decompressor_finalize(sum2_decompressor_t *d)
+int sumo_decompressor_finalize(sumo_decompressor_t *d)
 {
     if (!d) return -1;
     return d->finished ? 0 : -1;
 }
 
-void sum2_decompressor_free(sum2_decompressor_t *d)
+void sumo_decompressor_free(sumo_decompressor_t *d)
 {
     if (!d) return;
     if (d->dstream) ZSTD_freeDStream(d->dstream);

@@ -8,12 +8,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_ORCHESTRATOR_H
-#define SUM2_ORCHESTRATOR_H
+#ifndef SUMO_ORCHESTRATOR_H
+#define SUMO_ORCHESTRATOR_H
 
 #include <stddef.h>
 #include <stdint.h>
-#include "sum2/validator.h"
+#include "sumo/validator.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,7 +80,7 @@ typedef struct {
                             void *user_ctx);
 
     void *user_ctx;
-} sum2_platform_ops_t;
+} sumo_platform_ops_t;
 
 /**
  * Process a campaign manifest (L1).
@@ -90,18 +90,18 @@ typedef struct {
  *
  * For each dependency:
  *   1. fetch() the L2 envelope from the URI in the campaign manifest
- *   2. sum2_validate_envelope() the L2 envelope
- *   3. sum2_process_image() for the L2 manifest
+ *   2. sumo_validate_envelope() the L2 envelope
+ *   3. sumo_process_image() for the L2 manifest
  *
  * @param v          Validator (carries trust anchor + device identity)
  * @param campaign   Validated L1 campaign manifest
  * @param ops        Platform callbacks
- * @return SUM2_OK on success, first error encountered on failure
+ * @return SUMO_OK on success, first error encountered on failure
  */
-int sum2_process_campaign(
-    sum2_validator_t *v,
-    const sum2_manifest_t *campaign,
-    const sum2_platform_ops_t *ops
+int sumo_process_campaign(
+    sumo_validator_t *v,
+    const sumo_manifest_t *campaign,
+    const sumo_platform_ops_t *ops
 );
 
 /**
@@ -116,15 +116,15 @@ int sum2_process_campaign(
  * @param v          Validator
  * @param image      Validated L2 image manifest
  * @param ops        Platform callbacks
- * @return SUM2_OK on success, negative error code on failure
+ * @return SUMO_OK on success, negative error code on failure
  */
-int sum2_process_image(
-    sum2_validator_t *v,
-    const sum2_manifest_t *image,
-    const sum2_platform_ops_t *ops
+int sumo_process_image(
+    sumo_validator_t *v,
+    const sumo_manifest_t *image,
+    const sumo_platform_ops_t *ops
 );
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* SUM2_ORCHESTRATOR_H */
+#endif /* SUMO_ORCHESTRATOR_H */

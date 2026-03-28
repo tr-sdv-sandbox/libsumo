@@ -4,7 +4,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/encryptor.h"
+#include "sumo/encryptor.h"
 
 #include <stdexcept>
 
@@ -12,7 +12,7 @@
 
 #include "csuit_wrapper.h"
 
-namespace sum2 {
+namespace sumo {
 
 EncryptedPayload EncryptFirmware(
     std::span<const uint8_t> plaintext,
@@ -33,14 +33,14 @@ EncryptedPayload EncryptFirmware(
     std::vector<uint8_t> ei(512);
     size_t ct_len = 0, ei_len = 0;
 
-    int rc = sum2_encrypt_a128kw(
+    int rc = sumo_encrypt_a128kw(
         plaintext.data(), plaintext.size(),
         kb.data(), kb.size(),
         ct.data(), ct.size(), &ct_len,
         ei.data(), ei.size(), &ei_len);
 
     if (rc != 0)
-        throw std::runtime_error("sum2_encrypt_a128kw failed (rc=" + std::to_string(rc) + ")");
+        throw std::runtime_error("sumo_encrypt_a128kw failed (rc=" + std::to_string(rc) + ")");
 
     ct.resize(ct_len);
     ei.resize(ei_len);
@@ -68,7 +68,7 @@ EncryptedPayload EncryptFirmwareEcdh(
     std::vector<uint8_t> ei(1024);
     size_t ct_len = 0, ei_len = 0;
 
-    int rc = sum2_encrypt_esdh(
+    int rc = sumo_encrypt_esdh(
         plaintext.data(), plaintext.size(),
         sender_kb.data(), sender_kb.size(),
         recv_kb.data(), recv_kb.size(),
@@ -77,7 +77,7 @@ EncryptedPayload EncryptFirmwareEcdh(
         ei.data(), ei.size(), &ei_len);
 
     if (rc != 0)
-        throw std::runtime_error("sum2_encrypt_esdh failed (rc=" + std::to_string(rc) + ")");
+        throw std::runtime_error("sumo_encrypt_esdh failed (rc=" + std::to_string(rc) + ")");
 
     ct.resize(ct_len);
     ei.resize(ei_len);
@@ -106,9 +106,9 @@ std::vector<uint8_t> CompressFirmware(
 
 std::vector<uint8_t> Sha256(std::span<const uint8_t> data) {
     std::vector<uint8_t> digest(32);
-    if (sum2_sha256(data.data(), data.size(), digest.data()) != 0)
+    if (sumo_sha256(data.data(), data.size(), digest.data()) != 0)
         throw std::runtime_error("SHA-256 computation failed");
     return digest;
 }
 
-} // namespace sum2
+} // namespace sumo

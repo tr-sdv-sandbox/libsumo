@@ -9,10 +9,10 @@
 #include <cstring>
 #include <vector>
 
-#include "sum2/image_builder.h"
-#include "sum2/campaign_builder.h"
-#include "sum2/encryptor.h"
-#include "sum2/validator.h"
+#include "sumo/image_builder.h"
+#include "sumo/campaign_builder.h"
+#include "sumo/encryptor.h"
+#include "sumo/validator.h"
 
 #include "e2e_test_helpers.h"
 
@@ -39,10 +39,10 @@ protected:
  * Validate it and check dependency count.
  */
 TEST_F(CampaignTest, BuildCampaignTwoImages) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(100)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -53,33 +53,33 @@ TEST_F(CampaignTest, BuildCampaignTwoImages) {
     ASSERT_FALSE(campaign.empty()) << "Campaign envelope should not be empty";
 
     /* Validate the campaign */
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    int rc = sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    int rc = sumo_validate_envelope(
         v, campaign.data(), campaign.size(), 0, &manifest);
-    ASSERT_EQ(rc, SUM2_OK) << "Campaign validation failed: " << rc;
+    ASSERT_EQ(rc, SUMO_OK) << "Campaign validation failed: " << rc;
     ASSERT_NE(manifest, nullptr);
 
     /* Campaign-specific checks */
-    EXPECT_TRUE(sum2_manifest_is_campaign(manifest))
+    EXPECT_TRUE(sumo_manifest_is_campaign(manifest))
         << "Manifest should be identified as a campaign (has dependencies)";
-    EXPECT_EQ(sum2_manifest_dependency_count(manifest), 2u);
-    EXPECT_EQ(sum2_manifest_sequence_number(manifest), 100u);
+    EXPECT_EQ(sumo_manifest_dependency_count(manifest), 2u);
+    EXPECT_EQ(sumo_manifest_sequence_number(manifest), 100u);
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
  * Build campaign with an integrated (embedded) L2 manifest.
  */
 TEST_F(CampaignTest, BuildCampaignIntegratedImage) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(101)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -88,28 +88,28 @@ TEST_F(CampaignTest, BuildCampaignIntegratedImage) {
 
     ASSERT_FALSE(campaign.empty());
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, campaign.data(), campaign.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, campaign.data(), campaign.size(), 0, &manifest), SUMO_OK);
 
-    EXPECT_TRUE(sum2_manifest_is_campaign(manifest));
-    EXPECT_EQ(sum2_manifest_dependency_count(manifest), 1u);
+    EXPECT_TRUE(sumo_manifest_is_campaign(manifest));
+    EXPECT_EQ(sumo_manifest_dependency_count(manifest), 1u);
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
  * Mix external and integrated dependencies.
  */
 TEST_F(CampaignTest, BuildCampaignMixed) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(102)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -119,18 +119,18 @@ TEST_F(CampaignTest, BuildCampaignMixed) {
 
     ASSERT_FALSE(campaign.empty());
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, campaign.data(), campaign.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, campaign.data(), campaign.size(), 0, &manifest), SUMO_OK);
 
-    EXPECT_TRUE(sum2_manifest_is_campaign(manifest));
-    EXPECT_EQ(sum2_manifest_dependency_count(manifest), 2u);
+    EXPECT_TRUE(sumo_manifest_is_campaign(manifest));
+    EXPECT_EQ(sumo_manifest_dependency_count(manifest), 2u);
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }
 
 /**
@@ -138,10 +138,10 @@ TEST_F(CampaignTest, BuildCampaignMixed) {
  * campaign with seq=5 should fail.
  */
 TEST_F(CampaignTest, CampaignRollbackProtection) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign_10 = sum2::CampaignBuilder()
+    auto campaign_10 = sumo::CampaignBuilder()
         .SetSequenceNumber(10)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -149,7 +149,7 @@ TEST_F(CampaignTest, CampaignRollbackProtection) {
         .Build(signing_key);
     ASSERT_FALSE(campaign_10.empty());
 
-    auto campaign_5 = sum2::CampaignBuilder()
+    auto campaign_5 = sumo::CampaignBuilder()
         .SetSequenceNumber(5)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -158,34 +158,34 @@ TEST_F(CampaignTest, CampaignRollbackProtection) {
     ASSERT_FALSE(campaign_5.empty());
 
     /* Validator with min_seq=8 (global) */
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
-    sum2_validator_set_min_sequence(v, nullptr, 0, 8);
+    sumo_validator_set_min_sequence(v, nullptr, 0, 8);
 
     /* seq=10 should pass */
-    sum2_manifest_t *m10 = nullptr;
-    EXPECT_EQ(sum2_validate_envelope(
-        v, campaign_10.data(), campaign_10.size(), 0, &m10), SUM2_OK);
-    if (m10) sum2_manifest_free(m10);
+    sumo_manifest_t *m10 = nullptr;
+    EXPECT_EQ(sumo_validate_envelope(
+        v, campaign_10.data(), campaign_10.size(), 0, &m10), SUMO_OK);
+    if (m10) sumo_manifest_free(m10);
 
     /* seq=5 should be rejected */
-    sum2_manifest_t *m5 = nullptr;
-    EXPECT_EQ(sum2_validate_envelope(
+    sumo_manifest_t *m5 = nullptr;
+    EXPECT_EQ(sumo_validate_envelope(
         v, campaign_5.data(), campaign_5.size(), 0, &m5),
-        SUM2_ERR_ROLLBACK_REJECTED);
+        SUMO_ERR_ROLLBACK_REJECTED);
     EXPECT_EQ(m5, nullptr);
 
-    sum2_validator_free(v);
+    sumo_validator_free(v);
 }
 
 /**
  * Campaign validated with wrong trust anchor should fail.
  */
 TEST_F(CampaignTest, CampaignWrongSigningKey) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(103)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -198,28 +198,28 @@ TEST_F(CampaignTest, CampaignWrongSigningKey) {
     memcpy(wrong_key, kHmacCoseKey, sizeof(kHmacCoseKey));
     wrong_key[sizeof(wrong_key) - 1] ^= 0xFF;
 
-    sum2_validator_t *v = sum2_validator_create(
+    sumo_validator_t *v = sumo_validator_create(
         wrong_key, sizeof(wrong_key), nullptr);
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    int rc = sum2_validate_envelope(
+    sumo_manifest_t *manifest = nullptr;
+    int rc = sumo_validate_envelope(
         v, campaign.data(), campaign.size(), 0, &manifest);
-    EXPECT_NE(rc, SUM2_OK) << "Should reject campaign with wrong key";
+    EXPECT_NE(rc, SUMO_OK) << "Should reject campaign with wrong key";
     EXPECT_EQ(manifest, nullptr);
 
-    sum2_validator_free(v);
+    sumo_validator_free(v);
 }
 
 /**
  * Building a campaign with no images should fail.
  */
 TEST_F(CampaignTest, CampaignEmptyFails) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
     EXPECT_THROW(
-        sum2::CampaignBuilder()
+        sumo::CampaignBuilder()
             .SetSequenceNumber(1)
             .SetVendorId(kTestVendor)
             .Build(signing_key),
@@ -231,10 +231,10 @@ TEST_F(CampaignTest, CampaignEmptyFails) {
  * Sequence number round-trip through campaign build → validate → accessor.
  */
 TEST_F(CampaignTest, CampaignSequenceNumberRoundTrip) {
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    auto campaign = sum2::CampaignBuilder()
+    auto campaign = sumo::CampaignBuilder()
         .SetSequenceNumber(42)
         .SetVendorId(kTestVendor)
         .SetClassId(kTestClass)
@@ -242,15 +242,15 @@ TEST_F(CampaignTest, CampaignSequenceNumberRoundTrip) {
         .Build(signing_key);
     ASSERT_FALSE(campaign.empty());
 
-    sum2_validator_t *v = CreateTestValidator();
+    sumo_validator_t *v = CreateTestValidator();
     ASSERT_NE(v, nullptr);
 
-    sum2_manifest_t *manifest = nullptr;
-    ASSERT_EQ(sum2_validate_envelope(
-        v, campaign.data(), campaign.size(), 0, &manifest), SUM2_OK);
+    sumo_manifest_t *manifest = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(
+        v, campaign.data(), campaign.size(), 0, &manifest), SUMO_OK);
 
-    EXPECT_EQ(sum2_manifest_sequence_number(manifest), 42u);
+    EXPECT_EQ(sumo_manifest_sequence_number(manifest), 42u);
 
-    sum2_manifest_free(manifest);
-    sum2_validator_free(v);
+    sumo_manifest_free(manifest);
+    sumo_validator_free(v);
 }

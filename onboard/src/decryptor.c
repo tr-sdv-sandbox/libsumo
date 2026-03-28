@@ -8,9 +8,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/decryptor.h"
-#include "sum2/validator.h"
-#include "sum2_internal.h"
+#include "sumo/decryptor.h"
+#include "sumo/validator.h"
+#include "sumo_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +34,7 @@
 #define GCM_IV_LEN  12
 #define CEK_LEN     16  /* AES-128 */
 
-struct sum2_decryptor {
+struct sumo_decryptor {
     uint8_t cek[CEK_LEN]; /* unwrapped AES-128 key */
     uint8_t iv[GCM_IV_LEN];
     EVP_CIPHER_CTX *ctx;
@@ -610,9 +610,9 @@ out:
  * the encryption_info parameter (label 19) for a given component.
  */
 static UsefulBufC find_encryption_info(
-    const sum2_manifest_t *m, size_t component_index);
+    const sumo_manifest_t *m, size_t component_index);
 
-/* sum2_manifest is defined in sum2_internal.h */
+/* sumo_manifest is defined in sumo_internal.h */
 
 static UsefulBufC search_cmd_seq_for_param(
     const suit_command_sequence_t *seq,
@@ -638,7 +638,7 @@ static UsefulBufC search_cmd_seq_for_param(
 }
 
 static UsefulBufC find_encryption_info(
-    const sum2_manifest_t *m, size_t component_index)
+    const sumo_manifest_t *m, size_t component_index)
 {
     UsefulBufC result;
     const suit_manifest_t *man = &m->envelope.manifest;
@@ -664,8 +664,8 @@ static UsefulBufC find_encryption_info(
 
 /* --- Public API --- */
 
-sum2_decryptor_t *sum2_decryptor_create(
-    const sum2_manifest_t *manifest,
+sumo_decryptor_t *sumo_decryptor_create(
+    const sumo_manifest_t *manifest,
     size_t component_index,
     const uint8_t *device_key, size_t dk_len)
 {
@@ -710,7 +710,7 @@ sum2_decryptor_t *sum2_decryptor_create(
     }
 
     /* Allocate and initialize the decryptor */
-    sum2_decryptor_t *d = calloc(1, sizeof(*d));
+    sumo_decryptor_t *d = calloc(1, sizeof(*d));
     if (!d) {
         OPENSSL_cleanse(cek, sizeof(cek));
         return NULL;
@@ -771,8 +771,8 @@ fail:
     return NULL;
 }
 
-int sum2_decryptor_update(
-    sum2_decryptor_t *d,
+int sumo_decryptor_update(
+    sumo_decryptor_t *d,
     const uint8_t *ct, size_t ct_len,
     uint8_t *pt, size_t *pt_len)
 {
@@ -846,8 +846,8 @@ int sum2_decryptor_update(
     return 0;
 }
 
-int sum2_decryptor_finalize(
-    sum2_decryptor_t *d,
+int sumo_decryptor_finalize(
+    sumo_decryptor_t *d,
     uint8_t *pt, size_t *pt_len)
 {
     if (!d || !d->ctx || !d->initialized || !pt_len) return -1;
@@ -874,7 +874,7 @@ int sum2_decryptor_finalize(
     return 0;
 }
 
-void sum2_decryptor_free(sum2_decryptor_t *d)
+void sumo_decryptor_free(sumo_decryptor_t *d)
 {
     if (!d) return;
     if (d->ctx) EVP_CIPHER_CTX_free(d->ctx);

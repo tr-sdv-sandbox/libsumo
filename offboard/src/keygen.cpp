@@ -4,7 +4,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/keygen.h"
+#include "sumo/keygen.h"
 
 #include <stdexcept>
 #include <cstring>
@@ -17,7 +17,7 @@
 #include "cose_key_impl.h"
 #include "csuit_wrapper.h"
 
-namespace sum2 {
+namespace sumo {
 
 /* ---- CBOR encoding helpers (minimal, no QCBOR dependency) ---- */
 
@@ -166,7 +166,7 @@ static std::vector<uint8_t> compute_kid(const uint8_t x[32], const uint8_t y[32]
     memcpy(combined + 32, y, 32);
 
     std::vector<uint8_t> kid(32);
-    sum2_sha256(combined, 64, kid.data());
+    sumo_sha256(combined, 64, kid.data());
     return kid;
 }
 
@@ -213,7 +213,7 @@ CoseKey GenerateSigningKey(int algorithm) {
 
         /* kid = SHA-256(pub) */
         std::vector<uint8_t> kid(32);
-        sum2_sha256(pub, pub_len, kid.data());
+        sumo_sha256(pub, pub_len, kid.data());
 
         auto full = build_okp_cose_key(
             pub, pub_len, priv, priv_len, kid.data(), kid.size(),
@@ -297,4 +297,4 @@ std::string SerializeKeyPem(const CoseKey& key, bool include_private) {
     return result;
 }
 
-} // namespace sum2
+} // namespace sumo

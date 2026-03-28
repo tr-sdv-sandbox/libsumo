@@ -9,8 +9,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_CAMPAIGN_BUILDER_H
-#define SUM2_CAMPAIGN_BUILDER_H
+#ifndef SUMO_CAMPAIGN_BUILDER_H
+#define SUMO_CAMPAIGN_BUILDER_H
 
 #include <cstdint>
 #include <memory>
@@ -18,9 +18,9 @@
 #include <string>
 #include <vector>
 
-#include "sum2/image_builder.h"  // CoseKey, Uuid
+#include "sumo/image_builder.h"  // CoseKey, Uuid
 
-namespace sum2 {
+namespace sumo {
 
 /**
  * A dependency entry: an L2 image manifest to include in the campaign.
@@ -91,6 +91,6 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace sum2
+} // namespace sumo
 
-#endif /* SUM2_CAMPAIGN_BUILDER_H */
+#endif /* SUMO_CAMPAIGN_BUILDER_H */

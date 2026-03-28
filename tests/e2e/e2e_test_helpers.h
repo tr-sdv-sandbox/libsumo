@@ -11,13 +11,13 @@
 #include <string>
 #include <vector>
 
-#include "sum2/image_builder.h"
-#include "sum2/encryptor.h"
-#include "sum2/validator.h"
-#include "sum2/decryptor.h"
-#include "sum2/decompressor.h"
-#include "sum2/orchestrator.h"
-#include "sum2/policy.h"
+#include "sumo/image_builder.h"
+#include "sumo/encryptor.h"
+#include "sumo/validator.h"
+#include "sumo/decryptor.h"
+#include "sumo/decompressor.h"
+#include "sumo/orchestrator.h"
+#include "sumo/policy.h"
 
 /* ===== Shared key material (from libcsuit examples) ===== */
 
@@ -139,12 +139,12 @@ static const uint8_t kEcdhDeviceKeyPublic[] = {
 };
 
 /* Test UUIDs */
-static const sum2::Uuid kTestVendor = {{
+static const sumo::Uuid kTestVendor = {{
     0xFA, 0x6B, 0x4A, 0x53, 0xD5, 0xAD, 0x5F, 0xDF,
     0xBE, 0x9D, 0xE6, 0x63, 0xE4, 0xD4, 0x1F, 0xFE
 }};
 
-static const sum2::Uuid kTestClass = {{
+static const sumo::Uuid kTestClass = {{
     0x14, 0x92, 0xAF, 0x14, 0x25, 0x69, 0x5E, 0x48,
     0xBF, 0x42, 0x9B, 0x2D, 0x51, 0xF2, 0xAB, 0x45
 }};
@@ -172,8 +172,8 @@ struct FakePlatformOps {
     int fetch_call_count = 0;
     int write_call_count = 0;
 
-    sum2_platform_ops_t ops() {
-        sum2_platform_ops_t o = {};
+    sumo_platform_ops_t ops() {
+        sumo_platform_ops_t o = {};
         o.fetch = &s_fetch;
         o.write = &s_write;
         o.invoke = &s_invoke;
@@ -259,8 +259,8 @@ struct FakeStorageOps {
     bool fail_reads = false;
     bool fail_writes = false;
 
-    sum2_storage_ops_t ops() {
-        sum2_storage_ops_t o = {};
+    sumo_storage_ops_t ops() {
+        sumo_storage_ops_t o = {};
         o.read_u64 = &s_read_u64;
         o.write_u64 = &s_write_u64;
         o.read_i64 = &s_read_i64;
@@ -331,23 +331,23 @@ inline TestImage BuildTestImage(
 
     std::vector<uint8_t> to_encrypt = firmware;
     if (compress) {
-        to_encrypt = sum2::CompressFirmware(firmware);
+        to_encrypt = sumo::CompressFirmware(firmware);
     }
 
-    sum2::CoseKey enc_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey enc_key = sumo::CoseKey::FromCoseKeyBytes(
         {kA128kwCoseKey, sizeof(kA128kwCoseKey)});
-    std::vector<sum2::Recipient> recipients;
+    std::vector<sumo::Recipient> recipients;
     recipients.push_back({std::move(enc_key), {}});
 
-    auto encrypted = sum2::EncryptFirmware(to_encrypt, recipients);
+    auto encrypted = sumo::EncryptFirmware(to_encrypt, recipients);
     result.ciphertext = encrypted.ciphertext;
 
-    auto digest = sum2::Sha256(firmware);
+    auto digest = sumo::Sha256(firmware);
 
-    sum2::CoseKey signing_key = sum2::CoseKey::FromCoseKeyBytes(
+    sumo::CoseKey signing_key = sumo::CoseKey::FromCoseKeyBytes(
         {kHmacCoseKey, sizeof(kHmacCoseKey)});
 
-    result.envelope = sum2::ImageManifestBuilder()
+    result.envelope = sumo::ImageManifestBuilder()
         .SetComponentId(component_id)
         .SetSequenceNumber(seq)
         .SetVendorId(kTestVendor)
@@ -363,15 +363,15 @@ inline TestImage BuildTestImage(
 /**
  * Create a validator configured with our test keys.
  */
-inline sum2_validator_t *CreateTestValidator() {
-    sum2_device_id_t device_id = {};
+inline sumo_validator_t *CreateTestValidator() {
+    sumo_device_id_t device_id = {};
     memcpy(device_id.vendor_id, kTestVendor.bytes, 16);
     memcpy(device_id.class_id, kTestClass.bytes, 16);
 
-    sum2_validator_t *v = sum2_validator_create(
+    sumo_validator_t *v = sumo_validator_create(
         kHmacCoseKey, sizeof(kHmacCoseKey), &device_id);
     if (v) {
-        sum2_validator_add_device_key(v,
+        sumo_validator_add_device_key(v,
             kRawKek, sizeof(kRawKek), nullptr, 0);
     }
     return v;

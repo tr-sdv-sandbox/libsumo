@@ -2,10 +2,10 @@
  * Minimal onboard app that exercises the full validation + decryption path.
  * Used to measure linked binary size.
  */
-#include "sum2/validator.h"
-#include "sum2/decryptor.h"
-#include "sum2/orchestrator.h"
-#include "sum2/policy.h"
+#include "sumo/validator.h"
+#include "sumo/decryptor.h"
+#include "sumo/orchestrator.h"
+#include "sumo/policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,9 +45,9 @@ static int dummy_persist(const uint8_t *cid, size_t cid_len,
 int main(void) {
     /* Create validator with dummy trust anchor */
     uint8_t dummy_key[32] = {0};
-    sum2_device_id_t dev_id = {0};
+    sumo_device_id_t dev_id = {0};
 
-    sum2_validator_t *v = sum2_validator_create(
+    sumo_validator_t *v = sumo_validator_create(
         dummy_key, sizeof(dummy_key), &dev_id);
     if (!v) {
         fprintf(stderr, "validator_create failed\n");
@@ -55,36 +55,36 @@ int main(void) {
     }
 
     /* Set rollback policy */
-    sum2_validator_set_min_sequence(v, NULL, 0, 10);
-    sum2_validator_set_reject_before(v, 1700000000);
+    sumo_validator_set_min_sequence(v, NULL, 0, 10);
+    sumo_validator_set_reject_before(v, 1700000000);
 
     /* Validate envelope (will fail — no real data) */
     uint8_t dummy_envelope[] = {0xd8, 0x6b, 0xa2}; /* garbage CBOR */
-    sum2_manifest_t *m = NULL;
-    int rc = sum2_validate_envelope(v, dummy_envelope, sizeof(dummy_envelope),
+    sumo_manifest_t *m = NULL;
+    int rc = sumo_validate_envelope(v, dummy_envelope, sizeof(dummy_envelope),
         1700000001, &m);
     printf("validate_envelope returned: %d\n", rc);
 
     /* Exercise manifest accessors */
     if (m) {
         printf("seq=%lu components=%zu deps=%zu campaign=%d\n",
-            (unsigned long)sum2_manifest_sequence_number(m),
-            sum2_manifest_component_count(m),
-            sum2_manifest_dependency_count(m),
-            sum2_manifest_is_campaign(m));
+            (unsigned long)sumo_manifest_sequence_number(m),
+            sumo_manifest_component_count(m),
+            sumo_manifest_dependency_count(m),
+            sumo_manifest_is_campaign(m));
 
         /* Try to create decryptor */
-        sum2_decryptor_t *d = sum2_decryptor_create(m, 0, dummy_key, 32);
+        sumo_decryptor_t *d = sumo_decryptor_create(m, 0, dummy_key, 32);
         if (d) {
             uint8_t pt[64];
             size_t pt_len = sizeof(pt);
-            sum2_decryptor_update(d, dummy_key, 32, pt, &pt_len);
-            sum2_decryptor_finalize(d, pt, &pt_len);
-            sum2_decryptor_free(d);
+            sumo_decryptor_update(d, dummy_key, 32, pt, &pt_len);
+            sumo_decryptor_finalize(d, pt, &pt_len);
+            sumo_decryptor_free(d);
         }
 
         /* Try orchestrator */
-        sum2_platform_ops_t ops = {
+        sumo_platform_ops_t ops = {
             .fetch = dummy_fetch,
             .write = dummy_write,
             .invoke = dummy_invoke,
@@ -93,15 +93,15 @@ int main(void) {
             .user_ctx = NULL,
         };
 
-        if (sum2_manifest_is_campaign(m)) {
-            sum2_process_campaign(v, m, &ops);
+        if (sumo_manifest_is_campaign(m)) {
+            sumo_process_campaign(v, m, &ops);
         } else {
-            sum2_process_image(v, m, &ops);
+            sumo_process_image(v, m, &ops);
         }
 
-        sum2_manifest_free(m);
+        sumo_manifest_free(m);
     }
 
-    sum2_validator_free(v);
+    sumo_validator_free(v);
     return 0;
 }

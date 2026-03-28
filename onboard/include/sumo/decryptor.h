@@ -11,8 +11,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef SUM2_DECRYPTOR_H
-#define SUM2_DECRYPTOR_H
+#ifndef SUMO_DECRYPTOR_H
+#define SUMO_DECRYPTOR_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,8 +21,8 @@
 extern "C" {
 #endif
 
-typedef struct sum2_manifest sum2_manifest_t;
-typedef struct sum2_decryptor sum2_decryptor_t;
+typedef struct sumo_manifest sumo_manifest_t;
+typedef struct sumo_decryptor sumo_decryptor_t;
 
 /**
  * Create a streaming decryptor for a component in the manifest.
@@ -36,8 +36,8 @@ typedef struct sum2_decryptor sum2_decryptor_t;
  * @param dk_len            Key length
  * @return Decryptor handle, or NULL on failure (key unwrap failed, etc.)
  */
-sum2_decryptor_t *sum2_decryptor_create(
-    const sum2_manifest_t *manifest,
+sumo_decryptor_t *sumo_decryptor_create(
+    const sumo_manifest_t *manifest,
     size_t component_index,
     const uint8_t *device_key, size_t dk_len
 );
@@ -55,8 +55,8 @@ sum2_decryptor_t *sum2_decryptor_create(
  * @param pt_len      On input: output buffer size. On output: bytes written.
  * @return 0 on success, negative on error
  */
-int sum2_decryptor_update(
-    sum2_decryptor_t *d,
+int sumo_decryptor_update(
+    sumo_decryptor_t *d,
     const uint8_t *ct, size_t ct_len,
     uint8_t *pt, size_t *pt_len
 );
@@ -70,16 +70,16 @@ int sum2_decryptor_update(
  * @param d           Decryptor handle
  * @param pt          Output buffer for any remaining plaintext
  * @param pt_len      On input: buffer size. On output: bytes written.
- * @return 0 on success, SUM2_ERR_DECRYPT_FAILED if tag verification fails
+ * @return 0 on success, SUMO_ERR_DECRYPT_FAILED if tag verification fails
  */
-int sum2_decryptor_finalize(
-    sum2_decryptor_t *d,
+int sumo_decryptor_finalize(
+    sumo_decryptor_t *d,
     uint8_t *pt, size_t *pt_len
 );
 
-void sum2_decryptor_free(sum2_decryptor_t *d);
+void sumo_decryptor_free(sumo_decryptor_t *d);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* SUM2_DECRYPTOR_H */
+#endif /* SUMO_DECRYPTOR_H */

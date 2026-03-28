@@ -6,25 +6,25 @@
  * which aren't valid in C++. This helper is compiled as C to avoid
  * that issue.
  */
-#include "sum2/validator.h"
+#include "sumo/validator.h"
 #include "csuit/csuit.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 /* Must match the layout in validator.c and decryptor.c */
-struct sum2_manifest {
+struct sumo_manifest {
     suit_envelope_t envelope;
     suit_mechanism_t mechanisms[SUIT_MAX_KEY_NUM];
 };
 
-sum2_manifest_t *test_decode_mac0_envelope(
+sumo_manifest_t *test_decode_mac0_envelope(
     const uint8_t *envelope, size_t envelope_len,
     const uint8_t *hmac_key, size_t hmac_key_len)
 {
     if (!envelope || !hmac_key) return NULL;
 
-    sum2_manifest_t *m = calloc(1, sizeof(*m));
+    sumo_manifest_t *m = calloc(1, sizeof(*m));
     if (!m) return NULL;
 
     /* Set up HMAC256 mechanism for Mac0 verification */

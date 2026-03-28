@@ -4,14 +4,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/campaign_builder.h"
+#include "sumo/campaign_builder.h"
 
 #include <stdexcept>
 
 #include "cose_key_impl.h"
 #include "csuit_wrapper.h"
 
-namespace sum2 {
+namespace sumo {
 
 struct CampaignBuilder::Impl {
     uint64_t sequence_number = 0;
@@ -73,16 +73,16 @@ std::vector<uint8_t> CampaignBuilder::Build(const CoseKey& signing_key) {
         throw std::runtime_error("CampaignBuilder: no dependencies added");
 
     /* Compute SHA-256 digest of each L2 envelope and build dep descriptors */
-    std::vector<sum2_campaign_dep_t> deps;
+    std::vector<sumo_campaign_dep_t> deps;
     for (auto &d : impl_->dependencies) {
-        sum2_campaign_dep_t cd{};
+        sumo_campaign_dep_t cd{};
         cd.fetch_uri = d.fetch_uri.c_str();
         cd.fetch_uri_len = d.fetch_uri.size();
         cd.is_integrated = !d.integrated_key.empty();
         cd.payload = d.l2_envelope.data();
         cd.payload_len = d.l2_envelope.size();
 
-        sum2_sha256(d.l2_envelope.data(), d.l2_envelope.size(), cd.digest);
+        sumo_sha256(d.l2_envelope.data(), d.l2_envelope.size(), cd.digest);
         deps.push_back(cd);
     }
 
@@ -99,7 +99,7 @@ std::vector<uint8_t> CampaignBuilder::Build(const CoseKey& signing_key) {
 
     std::vector<uint8_t> out(16384);
     size_t out_len = 0;
-    int rc = sum2_eb_encode_campaign(
+    int rc = sumo_eb_encode_campaign(
         impl_->sequence_number,
         impl_->vendor_id.bytes,
         impl_->class_id.bytes,
@@ -115,4 +115,4 @@ std::vector<uint8_t> CampaignBuilder::Build(const CoseKey& signing_key) {
     return out;
 }
 
-} // namespace sum2
+} // namespace sumo

@@ -21,7 +21,7 @@
 
 /* --- Envelope builder --- */
 
-struct sum2_envelope_builder {
+struct sumo_envelope_builder {
     /* Stored values — must outlive the envelope struct */
     uint8_t component_cbor[128];
     size_t component_cbor_len;
@@ -42,24 +42,24 @@ struct sum2_envelope_builder {
     int has_enc_info;
 };
 
-sum2_envelope_builder_t *sum2_eb_create(void)
+sumo_envelope_builder_t *sumo_eb_create(void)
 {
-    return calloc(1, sizeof(sum2_envelope_builder_t));
+    return calloc(1, sizeof(sumo_envelope_builder_t));
 }
 
-void sum2_eb_free(sum2_envelope_builder_t *b)
+void sumo_eb_free(sumo_envelope_builder_t *b)
 {
     free(b);
 }
 
-int sum2_eb_set_sequence_number(sum2_envelope_builder_t *b, uint64_t seq)
+int sumo_eb_set_sequence_number(sumo_envelope_builder_t *b, uint64_t seq)
 {
     if (!b) return -1;
     b->sequence_number = seq;
     return 0;
 }
 
-int sum2_eb_add_component(sum2_envelope_builder_t *b,
+int sumo_eb_add_component(sumo_envelope_builder_t *b,
                           const char *const *segments, size_t num_segments)
 {
     if (!b || !segments || num_segments == 0) return -1;
@@ -83,7 +83,7 @@ int sum2_eb_add_component(sum2_envelope_builder_t *b,
     return 0;
 }
 
-int sum2_eb_set_vendor_id(sum2_envelope_builder_t *b, const uint8_t uuid[16])
+int sumo_eb_set_vendor_id(sumo_envelope_builder_t *b, const uint8_t uuid[16])
 {
     if (!b || !uuid) return -1;
     memcpy(b->vendor_id, uuid, 16);
@@ -91,7 +91,7 @@ int sum2_eb_set_vendor_id(sum2_envelope_builder_t *b, const uint8_t uuid[16])
     return 0;
 }
 
-int sum2_eb_set_class_id(sum2_envelope_builder_t *b, const uint8_t uuid[16])
+int sumo_eb_set_class_id(sumo_envelope_builder_t *b, const uint8_t uuid[16])
 {
     if (!b || !uuid) return -1;
     memcpy(b->class_id, uuid, 16);
@@ -99,7 +99,7 @@ int sum2_eb_set_class_id(sum2_envelope_builder_t *b, const uint8_t uuid[16])
     return 0;
 }
 
-int sum2_eb_set_image_digest_sha256(sum2_envelope_builder_t *b,
+int sumo_eb_set_image_digest_sha256(sumo_envelope_builder_t *b,
                                      const uint8_t digest[32],
                                      uint64_t image_size)
 {
@@ -110,7 +110,7 @@ int sum2_eb_set_image_digest_sha256(sum2_envelope_builder_t *b,
     return 0;
 }
 
-int sum2_eb_set_payload_uri(sum2_envelope_builder_t *b, const char *uri)
+int sumo_eb_set_payload_uri(sumo_envelope_builder_t *b, const char *uri)
 {
     if (!b || !uri) return -1;
     size_t len = strlen(uri);
@@ -120,7 +120,7 @@ int sum2_eb_set_payload_uri(sum2_envelope_builder_t *b, const char *uri)
     return 0;
 }
 
-int sum2_eb_set_encryption_info(sum2_envelope_builder_t *b,
+int sumo_eb_set_encryption_info(sumo_envelope_builder_t *b,
                                  const uint8_t *info, size_t info_len)
 {
     if (!b || !info || info_len > sizeof(b->enc_info)) return -1;
@@ -133,7 +133,7 @@ int sum2_eb_set_encryption_info(sum2_envelope_builder_t *b,
 /**
  * Assemble the suit_envelope_t from builder state and encode it.
  */
-int sum2_eb_encode(sum2_envelope_builder_t *b,
+int sumo_eb_encode(sumo_envelope_builder_t *b,
                    const uint8_t *cose_key_cbor, size_t key_len,
                    int cose_tag, int algorithm,
                    uint8_t *out, size_t out_size, size_t *out_len)
@@ -286,7 +286,7 @@ int sum2_eb_encode(sum2_envelope_builder_t *b,
 
 /* --- Encryption --- */
 
-int sum2_encrypt_a128kw(
+int sumo_encrypt_a128kw(
     const uint8_t *plaintext, size_t pt_len,
     const uint8_t *kek_cose_key, size_t kek_len,
     uint8_t *ct_out, size_t ct_out_size, size_t *ct_out_len,
@@ -321,7 +321,7 @@ int sum2_encrypt_a128kw(
 
 /* --- ECDH-ES+A128KW Encryption --- */
 
-int sum2_encrypt_esdh(
+int sumo_encrypt_esdh(
     const uint8_t *plaintext, size_t pt_len,
     const uint8_t *sender_cose_key, size_t sender_key_len,
     const uint8_t *recv_cose_key, size_t recv_key_len,
@@ -376,11 +376,11 @@ int sum2_encrypt_esdh(
 
 /* --- Campaign builder --- */
 
-int sum2_eb_encode_campaign(
+int sumo_eb_encode_campaign(
     uint64_t seq,
     const uint8_t *vendor_id,
     const uint8_t *class_id,
-    const sum2_campaign_dep_t *deps, size_t num_deps,
+    const sumo_campaign_dep_t *deps, size_t num_deps,
     const uint8_t *cose_key_cbor, size_t key_len,
     int cose_tag, int algorithm,
     uint8_t *out, size_t out_size, size_t *out_len)
@@ -560,7 +560,7 @@ int sum2_eb_encode_campaign(
 
 /* --- SHA-256 --- */
 
-int sum2_sha256(const uint8_t *data, size_t data_len, uint8_t digest[32])
+int sumo_sha256(const uint8_t *data, size_t data_len, uint8_t digest[32])
 {
     if (!data || !digest) return -1;
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();

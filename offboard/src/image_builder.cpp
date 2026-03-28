@@ -6,7 +6,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "sum2/image_builder.h"
+#include "sumo/image_builder.h"
 
 #include <stdexcept>
 #include <cstring>
@@ -18,7 +18,7 @@
 #include "cose_key_impl.h"
 #include "csuit_wrapper.h"
 
-namespace sum2 {
+namespace sumo {
 
 // --- CoseKey ---
 
@@ -97,7 +97,7 @@ CoseKey CoseKey::FromPem(std::string_view pem) {
         memcpy(combined, x, 32);
         memcpy(combined + 32, y, 32);
         k.impl_->kid.resize(32);
-        sum2_sha256(combined, 64, k.impl_->kid.data());
+        sumo_sha256(combined, 64, k.impl_->kid.data());
 
         /* Build COSE_Key CBOR using the same helper approach as keygen.cpp */
         auto build_ec2 = [&](const uint8_t *priv) -> std::vector<uint8_t> {
@@ -224,37 +224,37 @@ ImageManifestBuilder& ImageManifestBuilder::SetEncryptionInfo(
 }
 
 std::vector<uint8_t> ImageManifestBuilder::Build(const CoseKey& signing_key) {
-    sum2_envelope_builder_t *eb = sum2_eb_create();
+    sumo_envelope_builder_t *eb = sumo_eb_create();
     if (!eb)
         throw std::runtime_error("Failed to create envelope builder");
 
-    sum2_eb_set_sequence_number(eb, impl_->sequence_number);
+    sumo_eb_set_sequence_number(eb, impl_->sequence_number);
 
     if (!impl_->component_id.empty()) {
         std::vector<const char *> segs;
         for (auto &s : impl_->component_id)
             segs.push_back(s.c_str());
-        if (sum2_eb_add_component(eb, segs.data(), segs.size()) != 0) {
-            sum2_eb_free(eb);
+        if (sumo_eb_add_component(eb, segs.data(), segs.size()) != 0) {
+            sumo_eb_free(eb);
             throw std::runtime_error("Failed to set component ID");
         }
     }
 
     if (impl_->has_vendor_id)
-        sum2_eb_set_vendor_id(eb, impl_->vendor_id.bytes);
+        sumo_eb_set_vendor_id(eb, impl_->vendor_id.bytes);
     if (impl_->has_class_id)
-        sum2_eb_set_class_id(eb, impl_->class_id.bytes);
+        sumo_eb_set_class_id(eb, impl_->class_id.bytes);
 
     if (!impl_->payload_digest.empty()) {
-        sum2_eb_set_image_digest_sha256(
+        sumo_eb_set_image_digest_sha256(
             eb, impl_->payload_digest.data(), impl_->payload_size);
     }
 
     if (!impl_->payload_uri.empty())
-        sum2_eb_set_payload_uri(eb, impl_->payload_uri.c_str());
+        sumo_eb_set_payload_uri(eb, impl_->payload_uri.c_str());
 
     if (!impl_->encryption_info.empty()) {
-        sum2_eb_set_encryption_info(
+        sumo_eb_set_encryption_info(
             eb, impl_->encryption_info.data(), impl_->encryption_info.size());
     }
 
@@ -275,11 +275,11 @@ std::vector<uint8_t> ImageManifestBuilder::Build(const CoseKey& signing_key) {
 
     std::vector<uint8_t> out(8192);
     size_t out_len = 0;
-    int rc = sum2_eb_encode(eb,
+    int rc = sumo_eb_encode(eb,
                             kb.data(), kb.size(),
                             cose_tag, algorithm,
                             out.data(), out.size(), &out_len);
-    sum2_eb_free(eb);
+    sumo_eb_free(eb);
     if (rc != 0)
         throw std::runtime_error("Failed to encode envelope (rc=" + std::to_string(rc) + ")");
 
@@ -287,4 +287,4 @@ std::vector<uint8_t> ImageManifestBuilder::Build(const CoseKey& signing_key) {
     return out;
 }
 
-} // namespace sum2
+} // namespace sumo
