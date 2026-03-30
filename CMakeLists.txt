@@ -33,10 +33,10 @@ ExternalProject_Add(libcsuit_ext
     SOURCE_DIR       ${LIBCSUIT_DIR}
     CONFIGURE_COMMAND ""
     BUILD_COMMAND     ${CMAKE_COMMAND} -E env
-        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24"
+        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24 "
         make -C ${LIBCSUIT_DIR} build_deps ${LIBCSUIT_MBEDTLS_FLAG}
         && ${CMAKE_COMMAND} -E env
-        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24"
+        "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24 "
         make -C ${LIBCSUIT_DIR} libcsuit.a ${LIBCSUIT_MBEDTLS_FLAG}
     INSTALL_COMMAND   ""
     BUILD_IN_SOURCE   TRUE
@@ -86,6 +86,7 @@ target_link_libraries(sumo_3rdparty INTERFACE csuit t_cose qcbor ${SUMO_CRYPTO_L
 target_compile_definitions(sumo_3rdparty INTERFACE
     SUIT_MAX_DEPENDENCY_NUM=4
     SUIT_MAX_ARRAY_LENGTH=24
+    LIBCSUIT_DISABLE_MAC
 )
 
 # --- Onboard (device-side, C99) ---
