@@ -128,15 +128,11 @@ int sumo_process_image(
         return SUMO_ERR_CALLBACK_FAILED;
     }
 
-    /* 5. Create decryptor (if encryption info exists) */
-    const uint8_t *device_key = NULL;
-    size_t dk_len = 0;
-    sumo_validator_get_device_key(v, &device_key, &dk_len);
-
-    sumo_decryptor_t *dec = NULL;
-    if (device_key && dk_len > 0) {
-        dec = sumo_decryptor_create(image, 0, device_key, dk_len);
-    }
+    /* 5. Create decryptor (if encryption info exists). Use the kid-aware
+     * factory so multi-key validators select the right key from the
+     * recipient kid; falls back to the first registered key when the
+     * recipient carries no kid. */
+    sumo_decryptor_t *dec = sumo_decryptor_create_v(image, 0, v);
 
     /* 6. Process payload: decrypt → detect zstd → decompress → write */
     EVP_MD_CTX *hash_ctx = EVP_MD_CTX_new();

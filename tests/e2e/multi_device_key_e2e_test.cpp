@@ -208,6 +208,30 @@ TEST_F(MultiDeviceKeyTest, FirstKeyFallsThroughToCorrectKidWhenStored) {
     sumo_validator_free(v);
 }
 
+TEST_F(MultiDeviceKeyTest, NoKidStoredFallsBackToFirstKey) {
+    /* Validator holds KEK_B but registered without a kid (legacy single-
+     * device flow). The envelope's recipient still carries kid_B, but
+     * the validator has no kidded keys at all → fall back to the first
+     * registered key, which happens to be the correct one. Proves the
+     * "any_kidded == 0" branch in sumo_validator_select_device_key. */
+    sumo_validator_t *v = sumo_validator_create(
+        kHmac256Sign, sizeof(kHmac256Sign), nullptr);
+    ASSERT_NE(v, nullptr);
+    ASSERT_EQ(sumo_validator_add_device_key(v, kKekB, sizeof(kKekB),
+                                            nullptr, 0), SUMO_OK);
+
+    sumo_manifest_t *m = nullptr;
+    ASSERT_EQ(sumo_validate_envelope(v, envelope_for_b_.data(),
+                                     envelope_for_b_.size(), 0, &m),
+              SUMO_OK);
+
+    sumo_decryptor_t *dec = sumo_decryptor_create_v(m, 0, v);
+    ASSERT_NE(dec, nullptr);
+    sumo_decryptor_free(dec);
+    sumo_manifest_free(m);
+    sumo_validator_free(v);
+}
+
 TEST(MultiDeviceKeyValidator, AddBeyondMaxFailsCleanly) {
     sumo_validator_t *v = sumo_validator_create(
         kHmac256Sign, sizeof(kHmac256Sign), nullptr);

@@ -213,9 +213,19 @@ int sumo_validator_select_device_key(
     if (!v || !key_out || !key_len_out) return SUMO_ERR_INVALID_ENVELOPE;
     if (v->num_device_keys == 0) return SUMO_ERR_UNSUPPORTED;
 
-    /* Try kid match first. */
+    /* Three cases when an envelope carries a kid:
+     *   (a) any registered key has a matching kid → return it.
+     *   (b) at least one registered key carries a kid but none match →
+     *       reject (operator deliberately tagged keys; a kid mismatch is
+     *       a real "wrong device" signal).
+     *   (c) no registered key carries any kid → fall back to the first
+     *       key (single-device legacy: the operator hasn't opted in to
+     *       kid-based selection, so trust the unwrap step to fail-safe).
+     */
     if (kid && kid_len > 0) {
+        int any_kidded = 0;
         for (size_t i = 0; i < v->num_device_keys; i++) {
+            if (v->device_keys[i].kid_len > 0) any_kidded = 1;
             if (v->device_keys[i].kid_len == kid_len &&
                 memcmp(v->device_keys[i].kid, kid, kid_len) == 0) {
                 *key_out = v->device_keys[i].key;
@@ -223,12 +233,10 @@ int sumo_validator_select_device_key(
                 return SUMO_OK;
             }
         }
-        /* kid was provided but did not match any registered key */
-        return SUMO_ERR_DECRYPT_FAILED;
+        if (any_kidded) return SUMO_ERR_DECRYPT_FAILED;
+        /* fall through to first-key */
     }
 
-    /* No kid in the envelope — fall back to the first registered key
-     * (single-device legacy behaviour). */
     *key_out = v->device_keys[0].key;
     *key_len_out = v->device_keys[0].key_len;
     return SUMO_OK;
