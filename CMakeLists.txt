@@ -16,9 +16,11 @@ option(SUMO_CRYPTO_MBEDTLS  "Use mbedTLS crypto backend"          OFF)
 option(SUMO_CRYPTO_OPENSSL  "Use OpenSSL crypto backend"          ON)
 
 # --- 3rdparty: libcsuit (Makefile-based, builds QCBOR + t_cose + libcsuit) ---
-set(LIBCSUIT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libcsuit)
-set(QCBOR_DIR    ${LIBCSUIT_DIR}/3rdparty/QCBOR)
-set(TCOSE_DIR    ${LIBCSUIT_DIR}/3rdparty/t_cose)
+set(LIBCSUIT_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libcsuit)
+set(QCBOR_DIR        ${LIBCSUIT_DIR}/3rdparty/QCBOR)
+set(TCOSE_DIR        ${LIBCSUIT_DIR}/3rdparty/t_cose)
+set(LIBCSUIT_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libcsuit-patches)
+file(GLOB LIBCSUIT_PATCH_FILES "${LIBCSUIT_PATCHES}/*.patch")
 
 if(SUMO_CRYPTO_MBEDTLS)
     set(LIBCSUIT_MBEDTLS_FLAG "MBEDTLS=1")
@@ -31,6 +33,10 @@ endif()
 include(ExternalProject)
 ExternalProject_Add(libcsuit_ext
     SOURCE_DIR       ${LIBCSUIT_DIR}
+    PATCH_COMMAND    ${CMAKE_COMMAND}
+        -DLIBCSUIT_DIR=${LIBCSUIT_DIR}
+        -DLIBCSUIT_PATCHES=${LIBCSUIT_PATCHES}
+        -P ${LIBCSUIT_PATCHES}/apply_patches.cmake
     CONFIGURE_COMMAND ""
     BUILD_COMMAND     ${CMAKE_COMMAND} -E env
         "CFLAGS=-Os -DSUIT_MAX_DEPENDENCY_NUM=4 -DSUIT_MAX_ARRAY_LENGTH=24 "

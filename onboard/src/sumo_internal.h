@@ -22,11 +22,27 @@ struct sumo_manifest {
 };
 
 /**
- * Get the device decryption key from a validator.
- * Used internally by the orchestrator to create decryptors.
+ * Get the first registered device decryption key from a validator.
+ * Legacy single-key accessor; new callers should prefer
+ * sumo_validator_select_device_key() and pass the recipient kid.
  */
 int sumo_validator_get_device_key(
     const sumo_validator_t *v,
+    const uint8_t **key_out, size_t *key_len_out);
+
+/**
+ * Select a device decryption key by recipient kid.
+ *
+ * If `kid` is non-NULL and non-empty, the validator's registered keys
+ * are searched for an exact kid match; on miss, returns
+ * SUMO_ERR_DECRYPT_FAILED. If `kid` is NULL or empty, the first
+ * registered key is returned (single-device legacy behaviour).
+ *
+ * Returns SUMO_ERR_UNSUPPORTED when no device keys have been registered.
+ */
+int sumo_validator_select_device_key(
+    const sumo_validator_t *v,
+    const uint8_t *kid, size_t kid_len,
     const uint8_t **key_out, size_t *key_len_out);
 
 #ifdef __cplusplus

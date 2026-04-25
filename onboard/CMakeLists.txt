@@ -30,4 +30,9 @@ elseif(SUMO_PLATFORM_ZEPHYR)
 else()
     target_sources(sumo_onboard PRIVATE platform/platform_linux.c)
     target_compile_definitions(sumo_onboard PRIVATE SUMO_PLATFORM_LINUX=1)
+    # Linux requires libcurl for HTTP(S) fetch. file:// keeps working
+    # without it, but we depend on libcurl unconditionally on Linux so
+    # the platform backend has a single, predictable feature set.
+    find_package(CURL REQUIRED)
+    target_link_libraries(sumo_onboard PUBLIC CURL::libcurl)
 endif()

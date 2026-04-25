@@ -23,8 +23,20 @@
 #define SUMO_MAX_REVOKED_KIDS 8
 #define SUMO_MAX_KID_LEN 32
 
+/* Up to SUMO_MAX_DEVICE_KEYS device decryption keys can be registered
+ * (e.g., across key rotations). The recipient's kid in the envelope
+ * COSE_Encrypt selects which key to use. */
+#ifndef SUMO_MAX_DEVICE_KEYS
+#define SUMO_MAX_DEVICE_KEYS 4
+#endif
+#define SUMO_MAX_DEVICE_KEY_LEN 256
+
+/* SUIT private-use parameter labels (matching sumo-rs). */
+#define SUMO_PARAMETER_SECURITY_VERSION ((int64_t)-257)
+
 struct sumo_validator {
     sumo_device_id_t device_id;
+    int has_device_id;      /* set when device_id was supplied at create-time */
 
     /* Trust anchor store — up to SUIT_MAX_KEY_NUM root keys */
     suit_key_t trust_anchors[SUIT_MAX_KEY_NUM];
@@ -39,11 +51,21 @@ struct sumo_validator {
 
     uint64_t min_seq;       /* anti-rollback: must be strictly > */
     int has_min_seq;        /* true once set_min_sequence called */
+    uint64_t min_sec_ver;   /* security_version floor: must be strictly > */
+    int has_min_sec_ver;    /* true once set_min_security_version called */
     int64_t reject_before;  /* timestamp-based revocation */
 
-    /* Device decryption key (COSE_Key CBOR or raw symmetric key) */
-    uint8_t device_key[256];
-    size_t device_key_len;
+    /* Device decryption keys (COSE_Key CBOR or raw symmetric key), each
+     * with an optional kid. The recipient kid in the envelope picks the
+     * key; if no kid is supplied we fall back to the first registered
+     * key for legacy single-key compatibility. */
+    struct {
+        uint8_t key[SUMO_MAX_DEVICE_KEY_LEN];
+        size_t  key_len;
+        uint8_t kid[SUMO_MAX_KID_LEN];
+        size_t  kid_len;
+    } device_keys[SUMO_MAX_DEVICE_KEYS];
+    size_t num_device_keys;
 };
 
 /* sumo_manifest is defined in sumo_internal.h */
@@ -105,6 +127,7 @@ sumo_validator_t *sumo_validator_create(
 
     if (device_id) {
         v->device_id = *device_id;
+        v->has_device_id = 1;
     }
 
     if (trust_anchor_key && ta_len > 0) {
@@ -153,11 +176,21 @@ int sumo_validator_add_device_key(
     const uint8_t *kid, size_t kid_len)
 {
     if (!v || !key || key_len == 0) return SUMO_ERR_INVALID_ENVELOPE;
-    if (key_len > sizeof(v->device_key)) return SUMO_ERR_INVALID_ENVELOPE;
-    (void)kid; (void)kid_len;
+    if (key_len > SUMO_MAX_DEVICE_KEY_LEN) return SUMO_ERR_INVALID_ENVELOPE;
+    if (kid_len > SUMO_MAX_KID_LEN) return SUMO_ERR_INVALID_ENVELOPE;
+    if (v->num_device_keys >= SUMO_MAX_DEVICE_KEYS)
+        return SUMO_ERR_OUT_OF_MEMORY;
 
-    memcpy(v->device_key, key, key_len);
-    v->device_key_len = key_len;
+    size_t i = v->num_device_keys;
+    memcpy(v->device_keys[i].key, key, key_len);
+    v->device_keys[i].key_len = key_len;
+    if (kid && kid_len > 0) {
+        memcpy(v->device_keys[i].kid, kid, kid_len);
+        v->device_keys[i].kid_len = kid_len;
+    } else {
+        v->device_keys[i].kid_len = 0;
+    }
+    v->num_device_keys++;
     return SUMO_OK;
 }
 
@@ -166,9 +199,38 @@ int sumo_validator_get_device_key(
     const uint8_t **key_out, size_t *key_len_out)
 {
     if (!v || !key_out || !key_len_out) return SUMO_ERR_INVALID_ENVELOPE;
-    if (v->device_key_len == 0) return SUMO_ERR_UNSUPPORTED;
-    *key_out = v->device_key;
-    *key_len_out = v->device_key_len;
+    if (v->num_device_keys == 0) return SUMO_ERR_UNSUPPORTED;
+    *key_out = v->device_keys[0].key;
+    *key_len_out = v->device_keys[0].key_len;
+    return SUMO_OK;
+}
+
+int sumo_validator_select_device_key(
+    const sumo_validator_t *v,
+    const uint8_t *kid, size_t kid_len,
+    const uint8_t **key_out, size_t *key_len_out)
+{
+    if (!v || !key_out || !key_len_out) return SUMO_ERR_INVALID_ENVELOPE;
+    if (v->num_device_keys == 0) return SUMO_ERR_UNSUPPORTED;
+
+    /* Try kid match first. */
+    if (kid && kid_len > 0) {
+        for (size_t i = 0; i < v->num_device_keys; i++) {
+            if (v->device_keys[i].kid_len == kid_len &&
+                memcmp(v->device_keys[i].kid, kid, kid_len) == 0) {
+                *key_out = v->device_keys[i].key;
+                *key_len_out = v->device_keys[i].key_len;
+                return SUMO_OK;
+            }
+        }
+        /* kid was provided but did not match any registered key */
+        return SUMO_ERR_DECRYPT_FAILED;
+    }
+
+    /* No kid in the envelope — fall back to the first registered key
+     * (single-device legacy behaviour). */
+    *key_out = v->device_keys[0].key;
+    *key_len_out = v->device_keys[0].key_len;
     return SUMO_OK;
 }
 
@@ -190,6 +252,16 @@ int sumo_validator_set_reject_before(
 {
     if (!v) return SUMO_ERR_INVALID_ENVELOPE;
     v->reject_before = unix_timestamp;
+    return SUMO_OK;
+}
+
+int sumo_validator_set_min_security_version(
+    sumo_validator_t *v,
+    uint64_t min_security_version)
+{
+    if (!v) return SUMO_ERR_INVALID_ENVELOPE;
+    v->min_sec_ver = min_security_version;
+    v->has_min_sec_ver = 1;
     return SUMO_OK;
 }
 
@@ -244,11 +316,53 @@ int sumo_validate_envelope(
         return SUMO_ERR_ROLLBACK_REJECTED;
     }
 
+    /* security_version floor (strict >). Only enforced when the manifest
+     * actually declares the parameter — manifests without security_version
+     * fall back to the plain sequence-number check above. */
+    if (v->has_min_sec_ver) {
+        uint64_t sec_ver = 0;
+        if (sumo_manifest_security_version(m, 0, &sec_ver) == SUMO_OK &&
+            sec_ver <= v->min_sec_ver) {
+            free(m);
+            return SUMO_ERR_ROLLBACK_REJECTED;
+        }
+    }
+
     /* Timestamp-based revocation */
     if (v->reject_before > 0 && trusted_time > 0 &&
         trusted_time < v->reject_before) {
         free(m);
         return SUMO_ERR_REVOKED;
+    }
+
+    /* Device identity check (component 0). Two opt-out routes:
+     *   - device_id pointer was NULL at create-time → has_device_id == 0,
+     *     entire block skipped.
+     *   - any individual UUID field is the RFC 4122 nil UUID (all zeros)
+     *     → that specific field is treated as "don't care".
+     * A field is enforced only when both sides have a non-nil UUID and
+     * the manifest actually declares the corresponding condition. */
+    if (v->has_device_id) {
+        static const uint8_t nil_uuid[16] = {0};
+        uint8_t uuid[16];
+        if (memcmp(v->device_id.vendor_id, nil_uuid, 16) != 0 &&
+            sumo_manifest_vendor_id(m, 0, uuid) == SUMO_OK &&
+            memcmp(uuid, v->device_id.vendor_id, 16) != 0) {
+            free(m);
+            return SUMO_ERR_VENDOR_MISMATCH;
+        }
+        if (memcmp(v->device_id.class_id, nil_uuid, 16) != 0 &&
+            sumo_manifest_class_id(m, 0, uuid) == SUMO_OK &&
+            memcmp(uuid, v->device_id.class_id, 16) != 0) {
+            free(m);
+            return SUMO_ERR_CLASS_MISMATCH;
+        }
+        if (memcmp(v->device_id.device_id, nil_uuid, 16) != 0 &&
+            sumo_manifest_device_id(m, 0, uuid) == SUMO_OK &&
+            memcmp(uuid, v->device_id.device_id, 16) != 0) {
+            free(m);
+            return SUMO_ERR_DEVICE_MISMATCH;
+        }
     }
 
     *manifest_out = m;
@@ -326,6 +440,18 @@ int sumo_manifest_image_digest(
     *digest_out = p->value.digest.bytes.ptr;
     *digest_len_out = p->value.digest.bytes.len;
     if (algorithm_out) *algorithm_out = p->value.digest.algorithm_id;
+    return SUMO_OK;
+}
+
+int sumo_manifest_security_version(
+    const sumo_manifest_t *m, size_t component_index,
+    uint64_t *out)
+{
+    if (!m || !out) return SUMO_ERR_INVALID_ENVELOPE;
+    const suit_parameters_t *p = find_shared_param(
+        m, component_index, SUMO_PARAMETER_SECURITY_VERSION);
+    if (!p) return SUMO_ERR_UNSUPPORTED;
+    *out = p->value.uint64;
     return SUMO_OK;
 }
 

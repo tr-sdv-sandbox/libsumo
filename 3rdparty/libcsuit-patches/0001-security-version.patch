@@ -1,0 +1,22 @@
+Subject: [libsumo] decode SUMO_PARAMETER_SECURITY_VERSION (-257) as uint64
+
+Adds a single case clause so libcsuit's parameter decoder accepts the
+private-use label -257 as a uint64. Without this, any envelope built by
+sumo-rs's `sumo-tool --security-version=N` is rejected with
+SUIT_ERR_NOT_IMPLEMENTED on the device side.
+
+The matching encode-side case is intentionally omitted: libsumo is
+device-only and does not produce manifests, so we do not need to teach
+libcsuit's encoder about this label.
+
+--- a/src/suit_manifest_decode.c
++++ b/src/suit_manifest_decode.c
+@@ -474,6 +474,8 @@
+         case SUIT_PARAMETER_COMPONENT_SLOT:
+ #endif /* LIBCSUIT_DISABLE_PARAMETER_COMPONENT_SLOT */
+         case SUIT_PARAMETER_IMAGE_SIZE:
++        /* libsumo: SUMO_PARAMETER_SECURITY_VERSION (-257), uint64 */
++        case -257:
+ #if !defined(LIBCSUIT_DISABLE_PARAMETER_SOURCE_COMPONENT)
+         case SUIT_PARAMETER_SOURCE_COMPONENT:
+ #endif

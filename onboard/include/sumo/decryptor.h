@@ -23,12 +23,16 @@ extern "C" {
 
 typedef struct sumo_manifest sumo_manifest_t;
 typedef struct sumo_decryptor sumo_decryptor_t;
+typedef struct sumo_validator sumo_validator_t;
 
 /**
  * Create a streaming decryptor for a component in the manifest.
  *
  * Unwraps the content encryption key (CEK) from the COSE_Encrypt
- * encryption-info parameter using the device's private key.
+ * encryption-info parameter using the supplied raw device key.
+ * Most callers should prefer sumo_decryptor_create_v(), which selects
+ * the right key automatically by matching the recipient kid against
+ * the validator's registered device keys.
  *
  * @param manifest          Validated manifest
  * @param component_index   Which component to decrypt
@@ -40,6 +44,18 @@ sumo_decryptor_t *sumo_decryptor_create(
     const sumo_manifest_t *manifest,
     size_t component_index,
     const uint8_t *device_key, size_t dk_len
+);
+
+/**
+ * Create a streaming decryptor and pick the device key automatically
+ * by matching the recipient kid in the COSE_Encrypt to a key registered
+ * via sumo_validator_add_device_key(). Returns NULL when no kid matches
+ * (and no kid was supplied to fall back on).
+ */
+sumo_decryptor_t *sumo_decryptor_create_v(
+    const sumo_manifest_t *manifest,
+    size_t component_index,
+    const sumo_validator_t *validator
 );
 
 /**

@@ -30,6 +30,11 @@ add_executable(sumo_e2e_tests
     e2e/campaign_e2e_test.cpp
     e2e/orchestrator_e2e_test.cpp
     e2e/policy_e2e_test.cpp
+    e2e/device_id_e2e_test.cpp
+    e2e/security_version_e2e_test.cpp
+    e2e/multi_device_key_e2e_test.cpp
+    e2e/linux_platform_e2e_test.cpp
+    e2e/linux_http_fetch_e2e_test.cpp
 )
 
 target_link_libraries(sumo_e2e_tests PRIVATE

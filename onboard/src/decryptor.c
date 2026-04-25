@@ -69,7 +69,8 @@ static int parse_cose_encrypt(
     uint8_t iv_out[GCM_IV_LEN],
     uint8_t *wrapped_cek_out, size_t *wrapped_cek_len,
     int *recipient_alg_out,
-    const uint8_t **prot_hdr_out, size_t *prot_hdr_len_out)
+    const uint8_t **prot_hdr_out, size_t *prot_hdr_len_out,
+    const uint8_t **kid_out, size_t *kid_len_out)
 {
     QCBORDecodeContext ctx;
     QCBORItem item;
@@ -139,6 +140,8 @@ static int parse_cose_encrypt(
     }
 
     /* recipient[1] unprotected header — get alg (A128KW case) and kid */
+    if (kid_out)     *kid_out = NULL;
+    if (kid_len_out) *kid_len_out = 0;
     QCBORDecode_EnterMap(&ctx, NULL);
     while (1) {
         QCBORError err = QCBORDecode_GetNext(&ctx, &item);
@@ -150,6 +153,10 @@ static int parse_cose_encrypt(
             } else if (item.uDataType == QCBOR_TYPE_UINT64) {
                 *recipient_alg_out = (int)item.val.uint64;
             }
+        } else if (item.label.int64 == 4 && /* COSE label 4 = kid */
+                   item.uDataType == QCBOR_TYPE_BYTE_STRING) {
+            if (kid_out)     *kid_out = item.val.string.ptr;
+            if (kid_len_out) *kid_len_out = item.val.string.len;
         }
     }
     QCBORDecode_ExitMap(&ctx);
@@ -664,6 +671,44 @@ static UsefulBufC find_encryption_info(
 
 /* --- Public API --- */
 
+sumo_decryptor_t *sumo_decryptor_create_v(
+    const sumo_manifest_t *manifest,
+    size_t component_index,
+    const sumo_validator_t *validator)
+{
+    if (!manifest || !validator) return NULL;
+
+    /* Peek the recipient kid from the COSE_Encrypt structure so the
+     * validator can hand back the matching device key. */
+    UsefulBufC enc_info = find_encryption_info(manifest, component_index);
+    if (!enc_info.ptr || enc_info.len == 0) return NULL;
+
+    uint8_t iv[GCM_IV_LEN];
+    uint8_t wrapped_cek[CEK_LEN + 8 + 16];
+    size_t wrapped_cek_len = sizeof(wrapped_cek);
+    int recipient_alg = 0;
+    const uint8_t *prot_hdr = NULL;
+    size_t prot_hdr_len = 0;
+    const uint8_t *recipient_kid = NULL;
+    size_t recipient_kid_len = 0;
+    if (parse_cose_encrypt(enc_info.ptr, enc_info.len,
+                           iv, wrapped_cek, &wrapped_cek_len,
+                           &recipient_alg,
+                           &prot_hdr, &prot_hdr_len,
+                           &recipient_kid, &recipient_kid_len) != 0) {
+        return NULL;
+    }
+
+    const uint8_t *device_key = NULL;
+    size_t dk_len = 0;
+    if (sumo_validator_select_device_key(validator,
+                                          recipient_kid, recipient_kid_len,
+                                          &device_key, &dk_len) != SUMO_OK) {
+        return NULL;
+    }
+    return sumo_decryptor_create(manifest, component_index, device_key, dk_len);
+}
+
 sumo_decryptor_t *sumo_decryptor_create(
     const sumo_manifest_t *manifest,
     size_t component_index,
@@ -683,12 +728,16 @@ sumo_decryptor_t *sumo_decryptor_create(
     const uint8_t *prot_hdr = NULL;
     size_t prot_hdr_len = 0;
 
+    const uint8_t *recipient_kid = NULL;
+    size_t recipient_kid_len = 0;
     if (parse_cose_encrypt(enc_info.ptr, enc_info.len,
                            iv, wrapped_cek, &wrapped_cek_len,
                            &recipient_alg,
-                           &prot_hdr, &prot_hdr_len) != 0) {
+                           &prot_hdr, &prot_hdr_len,
+                           &recipient_kid, &recipient_kid_len) != 0) {
         return NULL;
     }
+    (void)recipient_kid; (void)recipient_kid_len;  /* not used here */
 
     /* Unwrap the CEK based on recipient algorithm */
     uint8_t cek[CEK_LEN];

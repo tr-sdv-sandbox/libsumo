@@ -47,11 +47,16 @@ typedef enum {
 
 /**
  * Device identity — UUIDs for vendor, class, and device matching.
+ *
+ * Each field is opt-in: the all-zero (RFC 4122 nil) UUID means "don't care
+ * for this field". Setting only vendor_id therefore restricts updates to
+ * a vendor without constraining class or device. Pass NULL to
+ * sumo_validator_create() to skip device-identity enforcement entirely.
  */
 typedef struct {
-    uint8_t vendor_id[16];  /* RFC 4122 UUID */
-    uint8_t class_id[16];
-    uint8_t device_id[16];
+    uint8_t vendor_id[16];  /* RFC 4122 UUID; nil = unenforced */
+    uint8_t class_id[16];   /* nil = unenforced */
+    uint8_t device_id[16];  /* nil = unenforced */
 } sumo_device_id_t;
 
 /**
@@ -126,6 +131,22 @@ int sumo_validator_set_min_sequence(
 );
 
 /**
+ * Set minimum accepted security_version (custom parameter -257).
+ *
+ * Independent anti-rollback floor in the private-use range. Used for
+ * compromise recovery: cleared keys/firmware that share a sequence-number
+ * counter can be cordoned off by bumping the security_version floor.
+ *
+ * Manifests whose component-0 security_version (if declared) is <= the
+ * floor are rejected with SUMO_ERR_ROLLBACK_REJECTED. Manifests that omit
+ * the parameter are not affected by this floor.
+ */
+int sumo_validator_set_min_security_version(
+    sumo_validator_t *v,
+    uint64_t min_security_version
+);
+
+/**
  * Set timestamp-based revocation policy.
  * Reject envelopes when trusted_time < reject_before.
  */
@@ -188,6 +209,18 @@ int sumo_manifest_image_digest(
     const sumo_manifest_t *m, size_t component_index,
     const uint8_t **digest_out, size_t *digest_len_out,
     int *algorithm_out
+);
+
+/**
+ * Extract the custom security_version parameter (label -257), an
+ * independent anti-rollback counter from the private-use range.
+ *
+ * @return SUMO_OK and writes the value, or SUMO_ERR_UNSUPPORTED when the
+ *         manifest does not declare this parameter for the component.
+ */
+int sumo_manifest_security_version(
+    const sumo_manifest_t *m, size_t component_index,
+    uint64_t *out
 );
 
 /**
