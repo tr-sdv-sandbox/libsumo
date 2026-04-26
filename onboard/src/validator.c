@@ -632,6 +632,67 @@ int sumo_manifest_text_description(
     return SUMO_OK;
 }
 
+/*
+ * Search a single command sequence (shared / install / payload_fetch
+ * / etc) for the given parameter label scoped to the given component.
+ * Returns the parameter value's UsefulBufC if found; {NULL,0} otherwise.
+ */
+static UsefulBufC search_seq_for_param_str(
+    const suit_command_sequence_t *seq,
+    size_t component_index, int64_t param_label)
+{
+    UsefulBufC empty = {NULL, 0};
+    for (size_t i = 0; i < seq->len; i++) {
+        const suit_command_sequence_item_t *cmd = &seq->commands[i];
+        if (cmd->label != SUIT_DIRECTIVE_OVERRIDE_PARAMETERS &&
+            cmd->label != SUIT_DIRECTIVE_SET_PARAMETERS)
+            continue;
+        const suit_parameters_list_t *pl = &cmd->value.params_list;
+        if (pl->index != (uint8_t)component_index) continue;
+        for (size_t j = 0; j < pl->len; j++) {
+            if (pl->params[j].label == param_label)
+                return pl->params[j].value.string;
+        }
+    }
+    return empty;
+}
+
+int sumo_manifest_encryption_info(
+    const sumo_manifest_t *m, size_t component_index,
+    const uint8_t **out_data, size_t *out_len)
+{
+    if (!m || !out_data || !out_len) return SUMO_ERR_INVALID_ENVELOPE;
+
+    /* The encryption_info parameter (label 19) can appear in any of the
+     * three sequences sumo-tool may emit it into: shared (most common
+     * for static, single-payload images), install (per-component
+     * install-time override), payload_fetch (per-fetch override). Match
+     * the search order in libsumo's decryptor.c so a fixture that
+     * passes there also passes here. */
+    const suit_manifest_t *man = &m->envelope.manifest;
+    UsefulBufC v;
+
+    v = search_seq_for_param_str(&man->common.shared_seq,
+                                 component_index,
+                                 SUIT_PARAMETER_ENCRYPTION_INFO);
+    if (v.ptr) goto found;
+
+    v = search_seq_for_param_str(&man->sev_man_mem.install,
+                                 component_index,
+                                 SUIT_PARAMETER_ENCRYPTION_INFO);
+    if (v.ptr) goto found;
+
+    v = search_seq_for_param_str(&man->sev_man_mem.payload_fetch,
+                                 component_index,
+                                 SUIT_PARAMETER_ENCRYPTION_INFO);
+    if (!v.ptr) return SUMO_ERR_UNSUPPORTED;
+
+found:
+    *out_data = v.ptr;
+    *out_len  = v.len;
+    return SUMO_OK;
+}
+
 void sumo_manifest_free(sumo_manifest_t *m)
 {
     free(m);

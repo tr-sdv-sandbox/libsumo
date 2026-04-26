@@ -212,6 +212,25 @@ int sumo_manifest_image_digest(
 );
 
 /**
+ * Extract the encryption_info parameter (label 19) for a component.
+ * The returned bytes are the serialized COSE_Encrypt structure
+ * suitable for handing directly to a streaming decryptor (e.g.
+ * `sumo_decryptor_create_v` or the device's PSA-backed equivalent).
+ *
+ * Pointer is into the parsed envelope and remains valid for the
+ * manifest's lifetime; caller must not free it.
+ *
+ * Searches the shared, install, and payload_fetch command sequences
+ * in that order — matching the search libsumo's own decryptor uses.
+ *
+ * @return SUMO_OK if found, SUMO_ERR_UNSUPPORTED if absent.
+ */
+int sumo_manifest_encryption_info(
+    const sumo_manifest_t *m, size_t component_index,
+    const uint8_t **out_data, size_t *out_len
+);
+
+/**
  * Extract the custom security_version parameter (label -257), an
  * independent anti-rollback counter from the private-use range.
  *
