@@ -12,6 +12,14 @@
 #include <zstd.h>
 #include <stdlib.h>
 
+/* Cap the maximum window the decoder is willing to allocate for a
+ * frame. zstd's library default is 27 (128 MB) — fine on hosts, lethal
+ * on Cortex-M class targets with a few hundred KB of heap. Define this
+ * at build time to apply the cap; 0 leaves zstd's default in place. */
+#ifndef SUMO_DECOMPRESSOR_WINDOW_LOG_MAX
+#  define SUMO_DECOMPRESSOR_WINDOW_LOG_MAX 0
+#endif
+
 struct sumo_decompressor {
     ZSTD_DStream *dstream;
     int finished;  /* zstd reported end of frame */
@@ -34,6 +42,16 @@ sumo_decompressor_t *sumo_decompressor_create(void)
         free(d);
         return NULL;
     }
+
+#if SUMO_DECOMPRESSOR_WINDOW_LOG_MAX > 0
+    rc = ZSTD_DCtx_setParameter(d->dstream, ZSTD_d_windowLogMax,
+                                SUMO_DECOMPRESSOR_WINDOW_LOG_MAX);
+    if (ZSTD_isError(rc)) {
+        ZSTD_freeDStream(d->dstream);
+        free(d);
+        return NULL;
+    }
+#endif
 
     return d;
 }
